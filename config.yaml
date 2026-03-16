@@ -125,7 +125,7 @@ channels:
     image_enabled: true
     bot_token: "xxxxx:xxxxx-xxxxxx"
     chat_id: "-xxxxxx"
-    template: "prometheus_telegram.html.j2"
+    template: "prometheus_telegram.html.tmpl"
 
   prometheus_telegram_critical:
     type: telegram
@@ -133,14 +133,14 @@ channels:
     image_enabled: false
     bot_token: "123456:AAxxxx"
     chat_id: "-xxxxx"
-    template: "prometheus_telegram.html.j2"
+    template: "prometheus_telegram.html.tmpl"
 
   prometheus_slack:
     type: slack
     enabled: true
     image_enabled: true
     webhook_url: "https://hooks.slack.com/services/Txxxxxxxxx/xxxxxx"
-    template: "prometheus_slack.json.j2"
+    template: "prometheus_slack.json.tmpl"
 
   # Grafana 告警渠道
   grafana_telegram_default:
@@ -149,7 +149,7 @@ channels:
     image_enabled: false
     bot_token: "8502571186:AAFqy849KL-xxxxxxx"
     chat_id: "-xxxxx"
-    template: "grafana_telegram.html.j2"
+    template: "grafana_telegram.html.tmpl"
 
   # 提币监控告警-人工审核告警-订单进入人工审核
   grafana_risk_withdrawal_order_telegram_default:
@@ -158,7 +158,7 @@ channels:
     image_enabled: false
     bot_token: "xxxxx:AAFqy849KL-YdNykyE7KcPvYpoCRpNYH4Mc"
     chat_id: "-xxx"
-    template: "grafana_telegram.html.j2"
+    template: "grafana_telegram.html.tmpl"
 
   grafana_telegram_critical:
     type: telegram
@@ -166,13 +166,13 @@ channels:
     image_enabled: false
     bot_token: "xxxx:xxxxx"
     chat_id: "-51345xxx33386"
-    template: "grafana_telegram.html.j2"
+    template: "grafana_telegram.html.tmpl"
 
   grafana_slack:
     type: slack
     enabled: false
     webhook_url: "https://hooks.slack.com/services/T000/B000/YYY"
-    template: "grafana_slack.json.j2"
+    template: "grafana_slack.json.tmpl"
 
   # Jenkins 告警渠道
   prometheus_telegram_jenkins:
@@ -183,7 +183,7 @@ channels:
     image_enabled: false
     bot_token: "xxxx:xx-xxxxx"
     chat_id: "-xxxxx"
-    template: "prometheus_telegram_jenkins.html.j2"
+    template: "prometheus_telegram_jenkins.html.tmpl"
     send_resolved: false
 
 # 路由：先识别来源（Grafana version 1 / Prometheus version 4），再按 _receiver、alertname、severity/级别 匹配；支持中文（如 "严重"、"灾难"）；无匹配则不发送
