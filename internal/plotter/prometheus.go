@@ -18,22 +18,55 @@ import (
 )
 
 const pngSignature = "\x89PNG\r\n\x1a\n"
+const debugLogPath = "/Users/masheilapincamamaril/Desktop/HashiCorp_Vault/.cursor/debug-b01777.log"
+const debugSessionID = "b01777"
 
-const debugLogPath = "/Users/masheilapincamamaril/Desktop/HashiCorp_Vault/.cursor/debug-f58319.log"
+// themeAlertDark 与 Python Plotly 出图风格一致：深色背景、白字、醒目折线色。
+const themeAlertDark = "alert-dark"
 
-func appendDebugLog(location, hypothesisID string, data map[string]any) error {
+func init() {
+	// 注册深色主题：背景 #0a0a0f、白色文字与坐标轴、与 Python 一致的线条配色
+	charts.AddTheme(themeAlertDark, charts.ThemeOption{
+		IsDarkMode: true,
+		AxisStrokeColor:    hexColor("ffffff"),
+		AxisSplitLineColor: hexColor("404040"),
+		BackgroundColor:    hexColor("0a0a0f"),
+		TextColor:          hexColor("ffffff"),
+		SeriesColors: []charts.Color{
+			hexColor("FF6B6B"), hexColor("4ECDC4"), hexColor("45B7D1"), hexColor("FFA07A"),
+			hexColor("98D8C8"), hexColor("F7DC6F"), hexColor("BB8FCE"), hexColor("85C1E2"),
+		},
+	})
+}
+
+func hexColor(hex string) charts.Color {
+	hex = strings.TrimPrefix(hex, "#")
+	if len(hex) != 6 {
+		return charts.Color{R: 255, G: 255, B: 255, A: 255}
+	}
+	r, _ := strconv.ParseUint(hex[0:2], 16, 8)
+	g, _ := strconv.ParseUint(hex[2:4], 16, 8)
+	b, _ := strconv.ParseUint(hex[4:6], 16, 8)
+	return charts.Color{R: uint8(r), G: uint8(g), B: uint8(b), A: 255}
+}
+
+func appendDebugLog(runID, hypothesisID, location, message string, data map[string]any) {
 	payload := map[string]any{
-		"sessionId": "f58319", "location": location, "hypothesisId": hypothesisID,
-		"message": "plotter debug", "data": data, "timestamp": time.Now().UnixMilli(),
+		"sessionId":    debugSessionID,
+		"runId":        runID,
+		"hypothesisId": hypothesisID,
+		"location":     location,
+		"message":      message,
+		"data":         data,
+		"timestamp":    time.Now().UnixMilli(),
 	}
 	line, _ := json.Marshal(payload)
 	f, err := os.OpenFile(debugLogPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
-		return err
+		return
 	}
 	_, _ = f.Write(append(line, '\n'))
 	_ = f.Close()
-	return nil
 }
 
 // 数据源类型：config 中 datasource 可选值，用于推断是否注入 label。
@@ -267,22 +300,6 @@ func (p *PrometheusPlotter) Generate(generatorURL, alertname string, labels map[
 	if logQueryRangeResult != nil {
 		logQueryRangeResult(apiURL, expr, len(payload.Data.Result), payload.Status)
 	}
-	// #region agent log
-	if len(payload.Data.Result) > 0 && len(payload.Data.Result[0].Values) > 0 {
-		pair := payload.Data.Result[0].Values[0]
-		t0, t1 := "nil", "nil"
-		if len(pair) >= 1 {
-			t0 = fmt.Sprintf("%T", pair[0])
-		}
-		if len(pair) >= 2 {
-			t1 = fmt.Sprintf("%T", pair[1])
-		}
-		_ = appendDebugLog("prometheus.go:after_decode", "H3", map[string]any{
-			"status": payload.Status, "result_count": len(payload.Data.Result),
-			"first_value_pair_type_0": t0, "first_value_pair_type_1": t1,
-		})
-	}
-	// #endregion
 	if payload.Status != "success" || len(payload.Data.Result) == 0 {
 		return nil, nil
 	}
@@ -291,15 +308,6 @@ func (p *PrometheusPlotter) Generate(generatorURL, alertname string, labels map[
 		result = result[:p.MaxSeries]
 	}
 	xLabels, seriesValues, legendLabels := parseResult(result)
-	// #region agent log
-	sv0Len := 0
-	if len(seriesValues) > 0 {
-		sv0Len = len(seriesValues[0])
-	}
-	_ = appendDebugLog("prometheus.go:after_parseResult", "H3", map[string]any{
-		"xLabels_len": len(xLabels), "seriesValues_len": len(seriesValues), "seriesValues_0_len": sv0Len,
-	})
-	// #endregion
 	if len(xLabels) == 0 || len(seriesValues) == 0 {
 		return nil, nil
 	}
@@ -431,6 +439,17 @@ func truncateLegend(s string) string {
 	return string(r[:maxLegendRunes-3]) + "..."
 }
 
+// legendOptionRightValuesOnly 返回图例选项：仅显示告警值、靠右、垂直排列，使数值出现在图表右侧红框区域（线条末端右侧）。
+func legendOptionRightValuesOnly(valueLabels []string) charts.OptionFunc {
+	return func(opt *charts.ChartOption) {
+		opt.Legend = charts.LegendOption{
+			Data:   valueLabels,
+			Left:   charts.PositionRight,
+			Orient: charts.OrientVertical,
+		}
+	}
+}
+
 func renderLineChart(title string, xLabels []string, seriesValues [][]float64, legendLabels []string) ([]byte, error) {
 	if len(seriesValues) == 0 || len(seriesValues[0]) == 0 {
 		return nil, fmt.Errorf("无数据")
@@ -455,29 +474,62 @@ func renderLineChart(title string, xLabels []string, seriesValues [][]float64, l
 	for i := range seriesValues {
 		seriesValues[i] = seriesValues[i][:nPoints]
 	}
-	// 图例追加告警值（取该条曲线最后一个点，与 Python _legend_line_with_alert_value 一致）
-	legendWithValue := make([]string, len(legendLabels))
-	for i, lbl := range legendLabels {
+	// 图例放在右侧红框区域（线条末端右侧）：仅显示告警值，垂直排列，与线条颜色一一对应
+	legendValueOnly := make([]string, len(legendLabels))
+	for i := range legendLabels {
 		if i < len(seriesValues) && len(seriesValues[i]) > 0 {
 			last := seriesValues[i][len(seriesValues[i])-1]
-			legendWithValue[i] = lbl + " 告警值" + fmt.Sprintf("%.1f", last)
+			legendValueOnly[i] = fmt.Sprintf("%.1f", last)
 		} else {
-			legendWithValue[i] = lbl
+			legendValueOnly[i] = ""
 		}
 	}
+	// 线性图（折线图）：与 Python 布局一致 1400×700，深色主题，纯线条不填色；图例仅数值、靠右
+	const chartWidth = 1400
+	const chartHeight = 700
+	const padLeft = 60
+	const padTop = 80
+	const padRight = 20
+	const padBottom = 60
+	// #region agent log
+	appendDebugLog("post-fix", "H1", "prometheus.go:renderLineChart", "chart and padded drawing area", map[string]any{
+		"chartWidth": chartWidth, "chartHeight": chartHeight,
+		"padLeft": padLeft, "padTop": padTop, "padRight": padRight, "padBottom": padBottom,
+		"drawingWidth": chartWidth - padLeft - padRight,
+	})
+	// #endregion
+	// #region agent log
+	appendDebugLog("post-fix", "H2", "prometheus.go:renderLineChart", "legend value labels for right side", map[string]any{
+		"legendCount": len(legendValueOnly), "legendValues": legendValueOnly,
+	})
+	// #endregion
 	opts := []charts.OptionFunc{
+		charts.WidthOptionFunc(chartWidth),
+		charts.HeightOptionFunc(chartHeight),
+		charts.PaddingOptionFunc(charts.Box{
+			Left: padLeft, Top: padTop, Right: padRight, Bottom: padBottom,
+		}),
 		charts.TitleTextOptionFunc(title),
 		charts.XAxisDataOptionFunc(xLabels),
-		charts.LegendLabelsOptionFunc(legendWithValue, charts.PositionRight),
-		charts.ThemeOptionFunc(charts.ThemeDark),
+		legendOptionRightValuesOnly(legendValueOnly),
+		charts.ThemeOptionFunc(themeAlertDark),
 		func(opt *charts.ChartOption) {
-			opt.FillArea = true
-			opt.LineStrokeWidth = 2.0
+			opt.FillArea = false       // 线性图：仅折线，不填充区域
+			opt.LineStrokeWidth = 3.0
 		},
 	}
 	painter, err := charts.LineRender(seriesValues, opts...)
 	if err != nil {
 		return nil, err
 	}
-	return painter.Bytes()
+	pngBytes, err := painter.Bytes()
+	if err != nil {
+		return nil, err
+	}
+	// #region agent log
+	appendDebugLog("post-fix", "H3", "prometheus.go:renderLineChart", "line chart rendered", map[string]any{
+		"seriesCount": len(seriesValues), "pointsPerSeries": nPoints, "pngBytes": len(pngBytes),
+	})
+	// #endregion
+	return pngBytes, nil
 }
