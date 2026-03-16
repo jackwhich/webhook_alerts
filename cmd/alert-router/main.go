@@ -117,7 +117,7 @@ func main() {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 	})
-	mux.HandleFunc("/webhook", handler.Webhook(alertSvc))
+	mux.HandleFunc("/webhook", handler.Webhook(logObj, alertSvc))
 	mux.Handle("/metrics", handler.Metrics())
 	h := logger.Middleware(logObj)(mux)
 

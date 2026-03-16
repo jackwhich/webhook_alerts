@@ -221,7 +221,17 @@ go build -o webhook_alerts ./cmd/alert-router
 ./scripts/start.sh logs
 ```
 
-需在 `config.yaml` 中配置 `server.port`。进程收到 **SIGTERM/SIGINT** 时会优雅退出（等待当前请求处理完毕，最多 30 秒）。启动后提供：
+需在 `config.yaml` 中配置 `server.port`。进程收到 **SIGTERM/SIGINT** 时会优雅退出（等待当前请求处理完毕，最多 30 秒）。
+
+**日志**：由 `config.yaml` 的 `logging.log_dir`、`logging.log_file` 决定，默认 `logs/webhook_alerts.log`（JSON 行）。每条日志含 `trace_id`、`event`、`message` 等，便于按一次请求串联排查。
+
+- **请求类型**：每条 HTTP 请求结束会打一条带 `event` 的日志（`webhook_finish`=告警 Webhook、`health_check`=健康检查、`metrics_scrape`=Prometheus 抓指标），message 中会写明「谁、什么请求、状态码、耗时」。
+- **告警 Webhook 完整链路**（同一 `trace_id`）：`webhook_received` → `webhook_payload`（数据摘要）→ `alerts_parsed`（解析出几条、哪些告警名）→ 每条告警：`alert_route`（路由到哪些渠道）→ `alert_send_start`（图片/文本）→ 每个渠道 `send_ok` / `send_fail`（成功或失败原因）→ `webhook_complete`（本请求汇总：解析 N 条、发送 M 次、成功/失败数）。
+- **排查**：`grep '"event":"webhook' logs/webhook_alerts.log` 看所有告警相关日志；按 `trace_id` 过滤可还原单次 Webhook 的完整处理过程。
+
+实时查看：`./scripts/start.sh logs` 或 `tail -f logs/webhook_alerts.log`。
+
+启动后提供：
 
 - `POST /webhook` — 告警入口
 - `GET /health` — 健康检查

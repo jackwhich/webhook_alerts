@@ -1,2 +1,5 @@
 # 本地提交信息草稿，不纳入版本库
 gitcommitmsg.txt
+
+# 运行时日志（由 config 的 log_dir/log_file 决定，默认 logs/webhook_alerts.log）
+logs/
