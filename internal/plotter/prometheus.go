@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -16,6 +18,23 @@ import (
 )
 
 const pngSignature = "\x89PNG\r\n\x1a\n"
+
+const debugLogPath = "/Users/masheilapincamamaril/Desktop/HashiCorp_Vault/.cursor/debug-f58319.log"
+
+func appendDebugLog(location, hypothesisID string, data map[string]any) error {
+	payload := map[string]any{
+		"sessionId": "f58319", "location": location, "hypothesisId": hypothesisID,
+		"message": "plotter debug", "data": data, "timestamp": time.Now().UnixMilli(),
+	}
+	line, _ := json.Marshal(payload)
+	f, err := os.OpenFile(debugLogPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return err
+	}
+	_, _ = f.Write(append(line, '\n'))
+	_ = f.Close()
+	return nil
+}
 
 // 数据源类型：config 中 datasource 可选值，用于推断是否注入 label。
 const (
@@ -248,6 +267,22 @@ func (p *PrometheusPlotter) Generate(generatorURL, alertname string, labels map[
 	if logQueryRangeResult != nil {
 		logQueryRangeResult(apiURL, expr, len(payload.Data.Result), payload.Status)
 	}
+	// #region agent log
+	if len(payload.Data.Result) > 0 && len(payload.Data.Result[0].Values) > 0 {
+		pair := payload.Data.Result[0].Values[0]
+		t0, t1 := "nil", "nil"
+		if len(pair) >= 1 {
+			t0 = fmt.Sprintf("%T", pair[0])
+		}
+		if len(pair) >= 2 {
+			t1 = fmt.Sprintf("%T", pair[1])
+		}
+		_ = appendDebugLog("prometheus.go:after_decode", "H3", map[string]any{
+			"status": payload.Status, "result_count": len(payload.Data.Result),
+			"first_value_pair_type_0": t0, "first_value_pair_type_1": t1,
+		})
+	}
+	// #endregion
 	if payload.Status != "success" || len(payload.Data.Result) == 0 {
 		return nil, nil
 	}
@@ -256,6 +291,15 @@ func (p *PrometheusPlotter) Generate(generatorURL, alertname string, labels map[
 		result = result[:p.MaxSeries]
 	}
 	xLabels, seriesValues, legendLabels := parseResult(result)
+	// #region agent log
+	sv0Len := 0
+	if len(seriesValues) > 0 {
+		sv0Len = len(seriesValues[0])
+	}
+	_ = appendDebugLog("prometheus.go:after_parseResult", "H3", map[string]any{
+		"xLabels_len": len(xLabels), "seriesValues_len": len(seriesValues), "seriesValues_0_len": sv0Len,
+	})
+	// #endregion
 	if len(xLabels) == 0 || len(seriesValues) == 0 {
 		return nil, nil
 	}
@@ -307,20 +351,33 @@ func parseResult(result []struct {
 	for t := range timeSet {
 		xLabels = append(xLabels, time.Unix(int64(t), 0).Format("15:04"))
 	}
-	// 使用第一条 series 的时间作为 X 轴
+	// 使用第一条 series 的时间作为 X 轴。Prometheus/VM query_range 返回的 value 为 JSON 字符串（如 "123.45"），需同时支持 float64 与 string。
 	for _, s := range result {
 		if len(s.Values) == 0 {
 			continue
 		}
 		var ys []float64
 		for _, pair := range s.Values {
-			if len(pair) >= 2 {
-				if _, ok := pair[0].(float64); ok {
-					if v, ok := pair[1].(float64); ok {
-						ys = append(ys, v)
-					}
-				}
+			if len(pair) < 2 {
+				continue
 			}
+			if _, ok := pair[0].(float64); !ok {
+				continue
+			}
+			var v float64
+			switch val := pair[1].(type) {
+			case float64:
+				v = val
+			case string:
+				var parseErr error
+				v, parseErr = strconv.ParseFloat(val, 64)
+				if parseErr != nil {
+					continue
+				}
+			default:
+				continue
+			}
+			ys = append(ys, v)
 		}
 		if len(ys) > 0 {
 			values = append(values, ys)
