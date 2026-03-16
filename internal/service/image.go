@@ -153,14 +153,19 @@ func (s *ImageService) generatePrometheusImage(ctx context.Context, logObj *logg
 			Str("expr", expr).
 			Msg("出图使用的表达式")
 	}
+	// 注意：日志里 expr 的 \" 是 JSON 序列化转义，实际发给 query_range 的 query 参数是原始 PromQL（无反斜杠）
 	logQueryRangeResult := func(apiURL, expr string, resultCount int, status string) {
-		logObj.WithContext(ctx).Info().
+		ev := logObj.WithContext(ctx).Info().
 			Str("event", "query_range").
 			Str("api_url", apiURL).
 			Str("expr", expr).
 			Int("result_count", resultCount).
-			Str("status", status).
-			Msg("用解码后的表达式请求 query_range 的请求/返回日志")
+			Str("status", status)
+		if resultCount < 0 {
+			ev.Str("phase", "request").Msg("即将用解码后的表达式请求 query_range")
+		} else {
+			ev.Str("phase", "response").Msg("query_range 返回：result_count 与 status 见上")
+		}
 	}
 	png, err := p.Generate(alert.GeneratorURL, alertname, alert.Labels, alert.Annotations, logExpr, logQueryRangeResult)
 	if err != nil {

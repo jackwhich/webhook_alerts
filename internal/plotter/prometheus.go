@@ -187,9 +187,10 @@ func (p *PrometheusPlotter) Generate(generatorURL, alertname string, labels map[
 	if step == "" {
 		step = "30s"
 	}
+	// query_range 参数：query=PromQL（原始字符串，无多余转义）, start/end=Unix 秒, step=采样间隔
 	params := url.Values{}
 	params.Set("query", expr)
-	params.Set("start", fmt.Sprintf("%d", startTime.Unix()))   // Unix 秒，与 VM 示例一致
+	params.Set("start", fmt.Sprintf("%d", startTime.Unix()))
 	params.Set("end", fmt.Sprintf("%d", now.Unix()))
 	params.Set("step", step)
 
