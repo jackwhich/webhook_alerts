@@ -6,9 +6,21 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+# 项目根：若 start.sh 在项目根（含 config.yaml）则用 SCRIPT_DIR，否则用上级（scripts 子目录时）
+if [ -f "$SCRIPT_DIR/config.yaml" ]; then
+    PROJECT_ROOT="$SCRIPT_DIR"
+else
+    PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+fi
 PROJECT_NAME="webhook_alerts"
-BINARY="${PROJECT_ROOT}/webhook_alerts"
+# 优先使用 webhook_alerts（本地 build.sh），否则用 webhook_alerts-linux-amd64（build-linux.sh 交叉编译）
+if [ -x "${PROJECT_ROOT}/webhook_alerts" ]; then
+    BINARY="${PROJECT_ROOT}/webhook_alerts"
+elif [ -x "${PROJECT_ROOT}/webhook_alerts-linux-amd64" ]; then
+    BINARY="${PROJECT_ROOT}/webhook_alerts-linux-amd64"
+else
+    BINARY="${PROJECT_ROOT}/webhook_alerts"
+fi
 PID_FILE="${SCRIPT_DIR}/${PROJECT_NAME}.pid"
 CONFIG_FILE="${CONFIG_FILE:-${PROJECT_ROOT}/config.yaml}"
 
