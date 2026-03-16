@@ -131,7 +131,7 @@ type PrometheusPlotter struct {
 var annotationKeysForExpr = []string{"expr", "query", "__expr__"}
 
 // Generate 请求 query_range 并渲染 PNG，失败或无数据时返回 nil。
-// 步骤：1) 从告警 Graph URL 取 g0.expr（已 URL decode）；2) 若无则从 annotations 取 expr/query/__expr__；3) 用 generatorURL 的 origin 调 VM/Prometheus API（不用 config 的 prometheus_url，保证打到同一套数据源）。labels 收窄查询；logExpr 可选，用于打日志。
+// 步骤：1) 从告警 Graph URL 取 g0.expr（已 URL decode）；2) 若无则从 annotations 取 expr/query/__expr__；3) 调 VM/Prometheus API 时优先用 config 的 prometheus_url（与 Python 一致，内网可达），否则才用 generatorURL 解析。labels 收窄查询；logExpr 可选，用于打日志。
 func (p *PrometheusPlotter) Generate(generatorURL, alertname string, labels map[string]string, annotations map[string]string, logExpr func(expr string)) ([]byte, error) {
 	expr, err := parseExprFromGeneratorURL(generatorURL)
 	if (err != nil || expr == "") && len(annotations) > 0 {
@@ -170,13 +170,13 @@ func (p *PrometheusPlotter) Generate(generatorURL, alertname string, labels map[
 		logExpr(expr)
 	}
 
-	// 出图必须调告警来源同一套 VM/Prometheus，故优先用 generatorURL 的 origin，不用 config 的 prometheus_url
-	base, _ := baseFromURL(generatorURL)
+	// 与 Python 一致：优先使用配置的 prometheus_url（内网可达），否则才从 generatorURL 解析（generatorURL 多为外网/不可达）
+	base := p.BaseURL
 	if base == "" {
-		base = p.BaseURL
+		base, _ = baseFromURL(generatorURL)
 	}
 	if base == "" {
-		return nil, fmt.Errorf("未配置或无法解析 Prometheus/VM 根地址（需 generatorURL 可解析或配置 prometheus_url）")
+		return nil, fmt.Errorf("未配置或无法解析 Prometheus/VM 根地址（请配置 prometheus_image.prometheus_url 或保证 generatorURL 可解析）")
 	}
 	// VM/Prometheus 查询一段时间数据：/api/v1/query_range，与 curl --data-urlencode 用法一致（POST + form）
 	apiURL := strings.TrimSuffix(base, "/") + "/api/v1/query_range"
