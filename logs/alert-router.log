@@ -1,0 +1,11 @@
+{"level":"info","config":"/Users/masheilapincamamaril/Desktop/HashiCorp_Vault/alert-router-go/config.yaml","level":"INFO","log_file":"logs/alert-router.log","time":"2026-03-16T17:09:23+08:00","message":"config loaded"}
+{"level":"info","listen":"0.0.0.0:9600","time":"2026-03-16T17:09:23+08:00","message":"starting HTTP server"}
+{"level":"info","trace_id":"eff78c64c9330311","method":"GET","path":"/health","duration_ms":0.699875,"time":"2026-03-16T17:09:37+08:00","message":"request"}
+{"level":"info","trace_id":"a0463835533a2af5","method":"GET","path":"/health","duration_ms":3.510166,"time":"2026-03-16T17:23:30+08:00","message":"request"}
+{"level":"info","trace_id":"777d2a0c614aa182","method":"GET","path":"/metrics","duration_ms":0.843333,"time":"2026-03-16T17:23:30+08:00","message":"request"}
+{"level":"info","config":"/Users/masheilapincamamaril/Desktop/HashiCorp_Vault/alert-router-go/config.yaml","level":"INFO","log_file":"logs/alert-router.log","channels":8,"channels_enabled":5,"routing_rules":5,"time":"2026-03-16T17:23:30+08:00","message":"config loaded"}
+{"level":"info","listen":"0.0.0.0:9600","time":"2026-03-16T17:23:30+08:00","message":"starting HTTP server"}
+{"level":"fatal","error":"listen tcp 0.0.0.0:9600: bind: address already in use","time":"2026-03-16T17:23:30+08:00","message":"server failed"}
+{"level":"info","config":"/Users/masheilapincamamaril/Desktop/HashiCorp_Vault/alert-router-go/config.yaml","level":"INFO","log_file":"logs/alert-router.log","channels":8,"channels_enabled":5,"routing_rules":5,"time":"2026-03-16T17:23:38+08:00","message":"config loaded"}
+{"level":"info","listen":"0.0.0.0:9600","time":"2026-03-16T17:23:38+08:00","message":"starting HTTP server"}
+{"level":"info","trace_id":"730483c4de37b779","method":"GET","path":"/metrics","duration_ms":1.922583,"time":"2026-03-16T17:23:40+08:00","message":"request"}

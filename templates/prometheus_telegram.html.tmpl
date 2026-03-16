@@ -1,0 +1,9 @@
+📊 来源: Prometheus
+
+{{if eq .status "firing"}}🚨🚨🚨🚨🚨🚨 状态: 告警{{else}}✅✅✅✅✅✅ 状态: 恢复{{end}}
+
+时间: {{.startsAt | e}}
+
+{{range $k, $v := .labels}}{{$k | e}}: {{$v | e}}
+{{end}}
+{{with index .annotations "summary"}}summary: {{. | e}}{{end}}

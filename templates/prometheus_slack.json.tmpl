@@ -1,0 +1,26 @@
+{
+  "text": "{{if eq .status \"firing\"}}❌❌❌❌ 告警{{else}}✅✅✅✅ 恢复{{end}}",
+  "username": "平台健康度告警",
+  "blocks": [
+    {
+      "type": "section",
+      "text": {
+        "type": "mrkdwn",
+        "text": "{{if eq .status \"firing\"}}❌❌❌❌ 告警{{else}}✅✅✅✅ 恢复{{end}}\\n{{if eq .status \"firing\"}}*告警时间*: `{{.startsAt}}`{{else}}*恢复时间*: `{{.endsAt}}`{{end}}\\n\\n*告警项*: `{{with index .labels \"alertname\"}}{{.}}{{else}}未知告警{{end}}`\\n*服务名称*: `{{with index .labels \"service_name\"}}{{.}}{{else}}未知应用{{end}}`\\n*告警类别*: `{{with index .labels \"category\"}}{{.}}{{else}}未知分类{{end}}`\\n*等级*: `{{with index .labels \"severity\"}}{{.}}{{else}}未知级别{{end}}`{{with index .annotations \"description\"}}\\n\\n*告警详情*：\\n{{.}}{{end}}{{with index .annotations \"mention\"}}\\n\\n{{.}}{{end}}"
+      }
+    }{{if .GeneratorURL}},
+    {
+      "type": "actions",
+      "elements": [
+        {
+          "type": "button",
+          "text": {
+            "type": "plain_text",
+            "text": "View Dashboard"
+          },
+          "url": "{{.GeneratorURL}}"
+        }
+      ]
+    }{{end}}
+  ]
+}

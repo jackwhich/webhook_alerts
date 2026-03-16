@@ -1,0 +1,10 @@
+🔴 <b>Jenkins 构建失败</b>
+<b>━━━━━━━━━━━━━━</b>
+
+<b>Jenkins Job:</b> {{with index .labels "jenkins_job"}}{{.}}{{else}}未知任务{{end}}
+<b>Build:</b> {{with index .labels "build_number"}}{{.}}{{else}}N/A{{end}}
+<b>状态:</b> {{with index .labels "alert_status"}}{{.}}{{else}}{{.status}}{{end}}
+<b>分支:</b> {{with index .labels "gitBranch"}}{{.}}{{else}}N/A{{end}}
+<b>Commit:</b> {{with index .labels "check_commitID"}}{{.}}{{else}}N/A{{end}}
+
+<b>时间:</b> {{.startsAt}}
