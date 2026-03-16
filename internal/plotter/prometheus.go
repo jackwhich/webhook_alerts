@@ -420,6 +420,20 @@ func renderLineChart(title string, xLabels []string, seriesValues [][]float64, l
 			xLabels[i] = fmt.Sprintf("%d", i)
 		}
 	}
+	// 保证 xLabels 与每条 series 长度一致，避免 go-charts 渲染时 xValues[i] 越界（index out of range [2] with length 2）
+	nPoints := len(xLabels)
+	for _, row := range seriesValues {
+		if len(row) < nPoints {
+			nPoints = len(row)
+		}
+	}
+	if nPoints == 0 {
+		return nil, fmt.Errorf("无数据")
+	}
+	xLabels = xLabels[:nPoints]
+	for i := range seriesValues {
+		seriesValues[i] = seriesValues[i][:nPoints]
+	}
 	opts := []charts.OptionFunc{
 		charts.TitleTextOptionFunc(title),
 		charts.XAxisDataOptionFunc(xLabels),
