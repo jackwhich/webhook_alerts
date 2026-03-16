@@ -11,12 +11,12 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/alert-router-go/internal/config"
-	"github.com/alert-router-go/internal/handler"
-	"github.com/alert-router-go/internal/logger"
-	"github.com/alert-router-go/internal/plotter"
-	"github.com/alert-router-go/internal/service"
-	"github.com/alert-router-go/internal/template"
+	"github.com/jackwhich/webhook_alerts/internal/config"
+	"github.com/jackwhich/webhook_alerts/internal/handler"
+	"github.com/jackwhich/webhook_alerts/internal/logger"
+	"github.com/jackwhich/webhook_alerts/internal/plotter"
+	"github.com/jackwhich/webhook_alerts/internal/service"
+	"github.com/jackwhich/webhook_alerts/internal/template"
 	"gopkg.in/natefinch/lumberjack.v2"
 )
 

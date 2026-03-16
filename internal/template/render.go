@@ -8,7 +8,7 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/alert-router-go/internal/model"
+	"github.com/jackwhich/webhook_alerts/internal/model"
 )
 
 // TemplateDir 存放 .tmpl 的目录（由 main 设置或默认 "templates"）。

@@ -1,7 +1,7 @@
 package adapter
 
 import (
-	"github.com/alert-router-go/internal/model"
+	"github.com/jackwhich/webhook_alerts/internal/model"
 )
 
 // ParseSingleAlert 解析单条告警格式（无 version/alerts 数组）。

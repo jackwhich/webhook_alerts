@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/alert-router-go/internal/config"
-	"github.com/alert-router-go/internal/metrics"
-	"github.com/alert-router-go/internal/template"
+	"github.com/jackwhich/webhook_alerts/internal/config"
+	"github.com/jackwhich/webhook_alerts/internal/metrics"
+	"github.com/jackwhich/webhook_alerts/internal/template"
 )
 
 const pngSignature = "\x89PNG\r\n\x1a\n"

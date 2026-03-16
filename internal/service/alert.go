@@ -1,13 +1,13 @@
 package service
 
 import (
-	"github.com/alert-router-go/internal/adapter"
-	"github.com/alert-router-go/internal/config"
-	"github.com/alert-router-go/internal/metrics"
-	"github.com/alert-router-go/internal/model"
-	"github.com/alert-router-go/internal/routing"
-	"github.com/alert-router-go/internal/sender"
-	"github.com/alert-router-go/internal/template"
+	"github.com/jackwhich/webhook_alerts/internal/adapter"
+	"github.com/jackwhich/webhook_alerts/internal/config"
+	"github.com/jackwhich/webhook_alerts/internal/metrics"
+	"github.com/jackwhich/webhook_alerts/internal/model"
+	"github.com/jackwhich/webhook_alerts/internal/routing"
+	"github.com/jackwhich/webhook_alerts/internal/sender"
+	"github.com/jackwhich/webhook_alerts/internal/template"
 )
 
 // AlertService 处理 Webhook 请求并路由告警到各渠道。

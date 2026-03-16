@@ -1,7 +1,7 @@
 package adapter
 
 import (
-	"github.com/alert-router-go/internal/model"
+	"github.com/jackwhich/webhook_alerts/internal/model"
 )
 
 // ParsePrometheus 解析 Prometheus Alertmanager Webhook 为标准告警列表。

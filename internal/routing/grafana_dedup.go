@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/alert-router-go/internal/model"
+	"github.com/jackwhich/webhook_alerts/internal/model"
 )
 
 var (

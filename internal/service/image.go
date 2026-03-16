@@ -4,10 +4,10 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/alert-router-go/internal/config"
-	"github.com/alert-router-go/internal/metrics"
-	"github.com/alert-router-go/internal/model"
-	"github.com/alert-router-go/internal/plotter"
+	"github.com/jackwhich/webhook_alerts/internal/config"
+	"github.com/jackwhich/webhook_alerts/internal/metrics"
+	"github.com/jackwhich/webhook_alerts/internal/model"
+	"github.com/jackwhich/webhook_alerts/internal/plotter"
 )
 
 // ImageService 告警趋势图生成服务。

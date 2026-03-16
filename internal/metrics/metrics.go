@@ -5,7 +5,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
-const prefix = "alert_router_"
+const prefix = "webhook_alerts_"
 
 var (
 	AlertsReceivedTotal = promauto.NewCounterVec(

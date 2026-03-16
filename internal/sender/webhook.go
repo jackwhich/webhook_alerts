@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/alert-router-go/internal/config"
-	"github.com/alert-router-go/internal/metrics"
+	"github.com/jackwhich/webhook_alerts/internal/config"
+	"github.com/jackwhich/webhook_alerts/internal/metrics"
 )
 
 // SendWebhook 向渠道 Webhook URL（如 Slack）发送 JSON 或原始 body，并记录 metrics。

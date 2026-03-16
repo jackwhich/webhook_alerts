@@ -1,7 +1,7 @@
 package adapter
 
 import (
-	"github.com/alert-router-go/internal/model"
+	"github.com/jackwhich/webhook_alerts/internal/model"
 )
 
 // DataSource 表示 Webhook 数据源类型。

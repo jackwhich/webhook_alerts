@@ -1,7 +1,7 @@
 package service
 
 import (
-	"github.com/alert-router-go/internal/config"
+	"github.com/jackwhich/webhook_alerts/internal/config"
 )
 
 // ChannelFilter 按 image_enabled、send_resolved 等过滤渠道。

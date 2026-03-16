@@ -7,8 +7,8 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-PROJECT_NAME="alert-router"
-BINARY="${PROJECT_ROOT}/alert-router"
+PROJECT_NAME="webhook_alerts"
+BINARY="${PROJECT_ROOT}/webhook_alerts"
 PID_FILE="${SCRIPT_DIR}/${PROJECT_NAME}.pid"
 CONFIG_FILE="${CONFIG_FILE:-${PROJECT_ROOT}/config.yaml}"
 
@@ -61,12 +61,12 @@ start_service() {
     mkdir -p "${PROJECT_ROOT}/logs"
     cd "$PROJECT_ROOT"
     export CONFIG_FILE
-    nohup "$BINARY" >> "${PROJECT_ROOT}/logs/alert-router.log" 2>&1 &
+    nohup "$BINARY" >> "${PROJECT_ROOT}/logs/webhook_alerts.log" 2>&1 &
     echo $! > "$PID_FILE"
     sleep 2
     if get_pid > /dev/null; then
         log_info "服务启动成功 (PID: $(get_pid))"
-        log_info "查看日志: tail -f ${PROJECT_ROOT}/logs/alert-router.log"
+        log_info "查看日志: tail -f ${PROJECT_ROOT}/logs/webhook_alerts.log"
         return 0
     else
         log_error "服务启动失败，请查看日志"
@@ -123,7 +123,7 @@ status_service() {
 }
 
 view_logs() {
-    LOG="${PROJECT_ROOT}/logs/alert-router.log"
+    LOG="${PROJECT_ROOT}/logs/webhook_alerts.log"
     if [ -f "$LOG" ]; then
         tail -f "$LOG"
     else

@@ -1,7 +1,7 @@
 package sender
 
 import (
-	"github.com/alert-router-go/internal/config"
+	"github.com/jackwhich/webhook_alerts/internal/config"
 )
 
 // SendResult 单次发送结果。

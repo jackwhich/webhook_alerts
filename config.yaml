@@ -4,7 +4,7 @@ server:
 
 logging:
   log_dir: "logs"
-  log_file: "alert-router.log"
+  log_file: "webhook_alerts.log"
   level: "INFO"
   max_bytes: 10485760
   backup_count: 5

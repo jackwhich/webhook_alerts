@@ -1,7 +1,7 @@
 package adapter
 
 import (
-	"github.com/alert-router-go/internal/model"
+	"github.com/jackwhich/webhook_alerts/internal/model"
 )
 
 // ParseGrafana 解析 Grafana 统一告警 Webhook 为标准告警列表。

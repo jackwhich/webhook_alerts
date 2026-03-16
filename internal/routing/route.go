@@ -4,8 +4,8 @@ import (
 	"regexp"
 	"sync"
 
-	"github.com/alert-router-go/internal/config"
-	"github.com/alert-router-go/internal/model"
+	"github.com/jackwhich/webhook_alerts/internal/config"
+	"github.com/jackwhich/webhook_alerts/internal/model"
 )
 
 var regexCache = make(map[string]*regexp.Regexp)

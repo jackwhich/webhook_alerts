@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/alert-router-go/internal/metrics"
-	"github.com/alert-router-go/internal/service"
+	"github.com/jackwhich/webhook_alerts/internal/metrics"
+	"github.com/jackwhich/webhook_alerts/internal/service"
 )
 
 // Webhook 处理 POST /webhook（Alertmanager / Grafana 告警入口）。

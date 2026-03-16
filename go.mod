@@ -1,4 +1,4 @@
-module github.com/alert-router-go
+module github.com/jackwhich/webhook_alerts
 
 go 1.21
 

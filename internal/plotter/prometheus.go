@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/alert-router-go/internal/metrics"
+	"github.com/jackwhich/webhook_alerts/internal/metrics"
 	charts "github.com/vicanso/go-charts/v2"
 )
 
