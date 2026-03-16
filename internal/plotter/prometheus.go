@@ -2,6 +2,7 @@
 package plotter
 
 import (
+	"embed"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -17,6 +18,9 @@ import (
 	charts "github.com/vicanso/go-charts/v2"
 )
 
+//go:embed fonts/wqy-microhei.ttc
+var wqyFont embed.FS
+
 const pngSignature = "\x89PNG\r\n\x1a\n"
 const debugLogPath = "/Users/masheilapincamamaril/Desktop/HashiCorp_Vault/.cursor/debug-b01777.log"
 const debugSessionID = "b01777"
@@ -25,6 +29,11 @@ const debugSessionID = "b01777"
 const themeAlertDark = "alert-dark"
 
 func init() {
+	// 加载中文字体
+	if fontData, err := wqyFont.ReadFile("fonts/wqy-microhei.ttc"); err == nil {
+		charts.InstallFont("wqy-microhei", fontData)
+	}
+
 	// 注册深色主题：背景 #0a0a0f、白色文字与坐标轴、与 Python 一致的线条配色
 	charts.AddTheme(themeAlertDark, charts.ThemeOption{
 		IsDarkMode: true,
@@ -439,12 +448,13 @@ func truncateLegend(s string) string {
 	return string(r[:maxLegendRunes-3]) + "..."
 }
 
-// legendOptionRightValuesOnly 返回图例选项：仅显示告警值、靠右、垂直排列，使数值出现在图表右侧红框区域（线条末端右侧）。
-func legendOptionRightValuesOnly(valueLabels []string) charts.OptionFunc {
+// legendOptionRightLegend 返回图例选项：靠右、垂直排列，与 Python 一致放在右上角。
+func legendOptionRightLegend(labels []string) charts.OptionFunc {
 	return func(opt *charts.ChartOption) {
 		opt.Legend = charts.LegendOption{
-			Data:   valueLabels,
+			Data:   labels,
 			Left:   charts.PositionRight,
+			Top:    "0",
 			Orient: charts.OrientVertical,
 		}
 	}
@@ -474,22 +484,23 @@ func renderLineChart(title string, xLabels []string, seriesValues [][]float64, l
 	for i := range seriesValues {
 		seriesValues[i] = seriesValues[i][:nPoints]
 	}
-	// 图例放在右侧红框区域（线条末端右侧）：仅显示告警值，垂直排列，与线条颜色一一对应
-	legendValueOnly := make([]string, len(legendLabels))
+	// 图例文案对齐 Python：每条为“标签 + 换行 + 告警值”。
+	legendRight := make([]string, len(legendLabels))
 	for i := range legendLabels {
 		if i < len(seriesValues) && len(seriesValues[i]) > 0 {
 			last := seriesValues[i][len(seriesValues[i])-1]
-			legendValueOnly[i] = fmt.Sprintf("%.1f", last)
+			legendRight[i] = legendLabels[i] + "\n告警值 " + fmt.Sprintf("%.1f", last)
 		} else {
-			legendValueOnly[i] = ""
+			legendRight[i] = legendLabels[i]
 		}
 	}
-	// 线性图（折线图）：与 Python 布局一致 1400×700，深色主题，纯线条不填色；图例仅数值、靠右
+	// 线性图（折线图）：与 Python 布局一致 1400×700，深色主题，图例右上角。
 	const chartWidth = 1400
 	const chartHeight = 700
 	const padLeft = 60
 	const padTop = 80
-	const padRight = 20
+	// 右侧留大边距（约 300px）给末端标签
+	const padRight = 360
 	const padBottom = 60
 	// #region agent log
 	appendDebugLog("post-fix", "H1", "prometheus.go:renderLineChart", "chart and padded drawing area", map[string]any{
@@ -499,8 +510,19 @@ func renderLineChart(title string, xLabels []string, seriesValues [][]float64, l
 	})
 	// #endregion
 	// #region agent log
-	appendDebugLog("post-fix", "H2", "prometheus.go:renderLineChart", "legend value labels for right side", map[string]any{
-		"legendCount": len(legendValueOnly), "legendValues": legendValueOnly,
+	appendDebugLog("post-fix", "H2", "prometheus.go:renderLineChart", "right legend labels", map[string]any{
+		"legendCount": len(legendRight), "legendFirst": func() string {
+			if len(legendRight) == 0 {
+				return ""
+			}
+			return legendRight[0]
+		}(),
+		"containsLineBreak": func() bool {
+			if len(legendRight) == 0 {
+				return false
+			}
+			return strings.Contains(legendRight[0], "\n")
+		}(),
 	})
 	// #endregion
 	opts := []charts.OptionFunc{
@@ -509,25 +531,87 @@ func renderLineChart(title string, xLabels []string, seriesValues [][]float64, l
 		charts.PaddingOptionFunc(charts.Box{
 			Left: padLeft, Top: padTop, Right: padRight, Bottom: padBottom,
 		}),
-		charts.TitleTextOptionFunc(title),
+		func(opt *charts.ChartOption) {
+			opt.FontFamily = "wqy-microhei" // 全局应用中文字体
+			wqyFontObj, _ := charts.GetFont("wqy-microhei")
+			opt.Title = charts.TitleOption{
+				Text:      title,
+				Left:      charts.PositionCenter,
+				FontSize:  24,
+				FontColor: hexColor("ffffff"),
+				Font:      wqyFontObj,
+			}
+		},
 		charts.XAxisDataOptionFunc(xLabels),
-		legendOptionRightValuesOnly(legendValueOnly),
 		charts.ThemeOptionFunc(themeAlertDark),
 		func(opt *charts.ChartOption) {
 			opt.FillArea = false       // 线性图：仅折线，不填充区域
 			opt.LineStrokeWidth = 3.0
+			f := false
+			opt.SymbolShow = &f
+			opt.Legend.Show = &f       // 彻底关闭自带图例，因为我们要自己画在右侧
 		},
 	}
 	painter, err := charts.LineRender(seriesValues, opts...)
 	if err != nil {
 		return nil, err
 	}
-	pngBytes, err := painter.Bytes()
-	if err != nil {
-		return nil, err
+
+	// === 手动在右侧留白区绘制图例（解决自带图例强制挤压上方区域的问题） ===
+	// 在绘制完毕后，painter.Width() 是 1400，padding 右侧是 360，
+	// 所以我们能在 X = 1050 左右的地方开始写字，从图表上方往下排。
+	legendX := chartWidth - padRight + 20
+	legendY := padTop - 20
+	lineSpacing := 25
+	
+	// 从 go-charts 里获取刚刚注册的字体
+	wqyFontObj, _ := charts.GetFont("wqy-microhei")
+
+	painter.SetTextStyle(charts.Style{
+		FontSize:  11,
+		FontColor: hexColor("ffffff"),
+		Font:      wqyFontObj,
+	})
+	
+	theme := charts.NewTheme(themeAlertDark)
+	for i, text := range legendRight {
+		// 画一个小圆点或者小横线代表颜色
+		color := theme.GetSeriesColor(i)
+		painter.SetDrawingStyle(charts.Style{
+			StrokeColor: color,
+			FillColor:   color,
+			StrokeWidth: 3,
+		})
+		
+		// 画一条短线和圆点
+		lineStartX := legendX
+		lineEndX := legendX + 20
+		dotX := legendX + 10
+		dotY := legendY - 4 // 略微上浮对齐文字中部
+		
+		// 曲线
+		painter.LineStroke([]charts.Point{
+			{X: lineStartX, Y: dotY},
+			{X: lineEndX, Y: dotY},
+		})
+		// 曲线上的点
+		painter.Dots([]charts.Point{{X: dotX, Y: dotY}})
+		
+		// 画两行文字（标签一行、告警值一行）
+		parts := strings.Split(text, "\n")
+		textX := lineEndX + 10
+		currentY := legendY
+		for _, part := range parts {
+			painter.Text(part, textX, currentY)
+			currentY += 16 // 行高
+		}
+		
+		legendY += lineSpacing + 16 // 下一个图例项的 Y 起点
 	}
+
 	// #region agent log
-	appendDebugLog("post-fix", "H3", "prometheus.go:renderLineChart", "line chart rendered", map[string]any{
+	pngBytes, _ := painter.Bytes()
+	appendDebugLog("post-fix", "H3", "prometheus.go:renderLineChart", "line chart rendered with custom manual legend", map[string]any{
 		"seriesCount": len(seriesValues), "pointsPerSeries": nPoints, "pngBytes": len(pngBytes),
 	})
 	// #endregion
