@@ -131,7 +131,13 @@ func (s *ImageService) generatePrometheusImage(ctx context.Context, logObj *logg
 			},
 		}
 	}
-	png, err := p.Generate(alert.GeneratorURL, alertname, alert.Labels, alert.Annotations)
+	logExpr := func(expr string) {
+		logObj.WithContext(ctx).Info().
+			Str("event", "expr").
+			Str("expr", expr).
+			Msg("出图使用的表达式")
+	}
+	png, err := p.Generate(alert.GeneratorURL, alertname, alert.Labels, alert.Annotations, logExpr)
 	if err != nil {
 		metrics.ImageGeneratedTotal.WithLabelValues("prometheus", "fail").Inc()
 		logObj.WithContext(ctx).Warn().

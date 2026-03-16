@@ -68,10 +68,26 @@ func Render(templateName string, alert *model.Alert) (string, error) {
 
 func funcMap() template.FuncMap {
 	return template.FuncMap{
-		"e":    html.EscapeString,
-		"cst":  ConvertToCST,
-		"link": URLToLink,
+		"e":         html.EscapeString,
+		"cst":       ConvertToCST,
+		"link":      URLToLink,
+		"splitComma": splitComma,
 	}
+}
+
+// splitComma 按逗号分割字符串，用于模板中多值 label（如合并告警的 pod）逐行展示，与 Python 的 <br> 换行一致。
+func splitComma(s string) []string {
+	if s == "" {
+		return nil
+	}
+	parts := strings.Split(s, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if t := strings.TrimSpace(p); t != "" {
+			out = append(out, t)
+		}
+	}
+	return out
 }
 
 // DetectParseMode 根据模板路径返回 Telegram 解析模式："HTML" 或 ""。

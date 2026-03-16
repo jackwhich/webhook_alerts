@@ -130,8 +130,9 @@ type PrometheusPlotter struct {
 // annotationKeysForExpr 当 generatorURL 无 g0.expr 时，尝试从 annotations 取表达式的 key 顺序（vmalert 等可能把 expr 放在这里）。
 var annotationKeysForExpr = []string{"expr", "query", "__expr__"}
 
-// Generate 请求 query_range 并渲染 PNG，失败或无数据时返回 nil。labels 用于收窄查询；annotations 可选，当 URL 无 g0.expr 时尝试从 annotations 取表达式以支持 vmalert 等。
-func (p *PrometheusPlotter) Generate(generatorURL, alertname string, labels map[string]string, annotations map[string]string) ([]byte, error) {
+// Generate 请求 query_range 并渲染 PNG，失败或无数据时返回 nil。
+// 步骤：1) 从告警 Graph URL 取 g0.expr（已 URL decode）；2) 若无则从 annotations 取 expr/query/__expr__；3) 用 generatorURL 的 origin 调 VM/Prometheus API（不用 config 的 prometheus_url，保证打到同一套数据源）。labels 收窄查询；logExpr 可选，用于打日志。
+func (p *PrometheusPlotter) Generate(generatorURL, alertname string, labels map[string]string, annotations map[string]string, logExpr func(expr string)) ([]byte, error) {
 	expr, err := parseExprFromGeneratorURL(generatorURL)
 	if (err != nil || expr == "") && len(annotations) > 0 {
 		for _, key := range annotationKeysForExpr {
@@ -165,20 +166,25 @@ func (p *PrometheusPlotter) Generate(generatorURL, alertname string, labels map[
 		plotExpr = injectAlertLabelsIntoExpr(plotExpr, labels)
 	}
 	expr = plotExpr
+	if logExpr != nil {
+		logExpr(expr)
+	}
 
-	base := p.BaseURL
+	// 出图必须调告警来源同一套 VM/Prometheus，故优先用 generatorURL 的 origin，不用 config 的 prometheus_url
+	base, _ := baseFromURL(generatorURL)
 	if base == "" {
-		base, _ = baseFromURL(generatorURL)
+		base = p.BaseURL
 	}
 	if base == "" {
-		return nil, fmt.Errorf("未配置或无法解析 Prometheus/VM 根地址")
+		return nil, fmt.Errorf("未配置或无法解析 Prometheus/VM 根地址（需 generatorURL 可解析或配置 prometheus_url）")
 	}
+	// VM/Prometheus 查询一段时间数据：/api/v1/query_range，与 curl --data-urlencode 用法一致（POST + form）
 	apiURL := strings.TrimSuffix(base, "/") + "/api/v1/query_range"
 	now := time.Now().UTC()
-	start := now.Add(-p.Lookback)
+	startTime := now.Add(-p.Lookback)
 	if p.Lookback < time.Minute {
 		p.Lookback = 15 * time.Minute
-		start = now.Add(-p.Lookback)
+		startTime = now.Add(-p.Lookback)
 	}
 	step := p.Step
 	if step == "" {
@@ -186,12 +192,12 @@ func (p *PrometheusPlotter) Generate(generatorURL, alertname string, labels map[
 	}
 	params := url.Values{}
 	params.Set("query", expr)
-	params.Set("start", start.Format(time.RFC3339))
-	params.Set("end", now.Format(time.RFC3339))
+	params.Set("start", fmt.Sprintf("%d", startTime.Unix()))   // Unix 秒，与 VM 示例一致
+	params.Set("end", fmt.Sprintf("%d", now.Unix()))
 	params.Set("step", step)
-	fullURL := apiURL + "?" + params.Encode()
 
-	req, _ := http.NewRequest(http.MethodGet, fullURL, nil)
+	req, _ := http.NewRequest(http.MethodPost, apiURL, strings.NewReader(params.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	client := p.HTTPClient
 	if client == nil {
 		client = http.DefaultClient
@@ -252,6 +258,7 @@ func (p *PrometheusPlotter) Generate(generatorURL, alertname string, labels map[
 	return png, nil
 }
 
+// parseExprFromGeneratorURL 从告警里的 Graph URL 取 g0.expr；Go 的 url.Query().Get 已做一次 URL decode，直接返回。
 func parseExprFromGeneratorURL(generatorURL string) (string, error) {
 	u, err := url.Parse(generatorURL)
 	if err != nil {
@@ -259,7 +266,7 @@ func parseExprFromGeneratorURL(generatorURL string) (string, error) {
 	}
 	q := u.Query()
 	expr := q.Get("g0.expr")
-	return expr, nil
+	return strings.TrimSpace(expr), nil
 }
 
 func baseFromURL(raw string) (string, error) {

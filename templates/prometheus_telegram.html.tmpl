@@ -4,6 +4,6 @@
 
 时间: {{.startsAt | e}}
 
-{{range $k, $v := .labels}}{{$k | e}}: {{$v | e}}
+{{range $k, $v := .labels}}{{$k | e}}: {{$parts := splitComma $v}}{{if ge (len $parts) 2}}{{range $i, $p := $parts}}{{if $i}}<br>{{end}}{{$p | e}}{{end}}{{else}}{{$v | e}}{{end}}
 {{end}}
 {{with index .annotations "summary"}}summary: {{. | e}}{{end}}

@@ -111,6 +111,12 @@ func mergePrometheusAlerts(payload map[string]any, rawAlerts []any, receiver, pa
 	if mergedAnnotations["summary"] == "" && firstAnn["summary"] != "" {
 		mergedAnnotations["summary"] = firstAnn["summary"]
 	}
+	// 保留第一条的 expr/query/__expr__，供出图从 annotations 取表达式（合并告警时 generatorURL 常无 g0.expr）
+	for _, key := range []string{"expr", "query", "__expr__"} {
+		if v := firstAnn[key]; v != "" {
+			mergedAnnotations[key] = v
+		}
+	}
 	if len(mergedAnnotations) == 0 {
 		mergedAnnotations = firstAnn
 	}
