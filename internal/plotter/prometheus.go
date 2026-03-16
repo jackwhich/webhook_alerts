@@ -30,6 +30,14 @@ const debugSessionID = "b01777"
 // themeAlertDark 与 Python Plotly 出图风格一致：深色背景、白字、醒目折线色。
 const themeAlertDark = "alert-dark"
 
+// 与 alert-router-py Plotly 导出一致：scale=2 时 PNG 为 2800×1400，背景 #0a0a0f。
+const (
+	chartScale       = 2
+	chartBaseWidth   = 1400
+	chartBaseHeight  = 700
+	chartBgHex       = "0a0a0f"
+)
+
 func init() {
 	// 加载中文字体
 	fontData, err := wqyFont.ReadFile("fonts/arial-unicode.ttf")
@@ -47,12 +55,12 @@ func init() {
 		fmt.Printf("读取嵌入字体失败: %v\n", err)
 	}
 
-	// 注册霓虹深色主题：高对比、鲜亮线条、白色文本；轴分割线与背景同色以隐藏库内可能绘制的绿/白间虚线（日志证实在 y=570 的线非本代码绘制）
+	// 注册霓虹深色主题：高对比、鲜亮线条、白色文本；轴分割线与背景同色以隐藏库内可能绘制的绿/白间虚线（与 Python Plotly #0a0a0f 一致）
 	charts.AddTheme(themeAlertDark, charts.ThemeOption{
 		IsDarkMode: true,
 		AxisStrokeColor:    hexColor("DCE6FF"),
-		AxisSplitLineColor: hexColor("060913"),
-		BackgroundColor:    hexColor("060913"),
+		AxisSplitLineColor: hexColor(chartBgHex),
+		BackgroundColor:    hexColor(chartBgHex),
 		TextColor:          hexColor("F1F5FF"),
 		SeriesColors: []charts.Color{
 			hexColor("FF4D6D"), hexColor("00E5FF"), hexColor("7DFF72"), hexColor("FFB703"),
@@ -529,12 +537,14 @@ func drawManualYAxisLabels(
 	left, top, bottom int,
 	isPercent bool,
 	axisMax float64,
+	scale int,
 ) {
 	p.SetTextStyle(charts.Style{
-		FontSize:  12,
+		FontSize:  float64(12 * scale),
 		FontColor: hexColor("FFFFFF"),
 		Font:      font,
 	})
+	offsetX := 8 * scale
 	if isPercent {
 		// 0~100%，每 20% 一档
 		for i := 0; i <= 5; i++ {
@@ -542,7 +552,7 @@ func drawManualYAxisLabels(
 			y := bottom - int((v/100.0)*float64(bottom-top))
 			txt := fmt.Sprintf("%.0f%%", v)
 			box := p.MeasureText(txt)
-			p.Text(txt, left-box.Width()-8, y+box.Height()/2-1)
+			p.Text(txt, left-box.Width()-offsetX, y+box.Height()/2-1)
 		}
 		return
 	}
@@ -558,7 +568,7 @@ func drawManualYAxisLabels(
 			txt = fmt.Sprintf("%.2f K", v/1000.0)
 		}
 		box := p.MeasureText(txt)
-		p.Text(txt, left-box.Width()-8, y+box.Height()/2-1)
+		p.Text(txt, left-box.Width()-offsetX, y+box.Height()/2-1)
 	}
 }
 
@@ -625,23 +635,25 @@ func wrapTextByWidth(p *charts.Painter, text string, maxWidth int) []string {
 	return lines
 }
 
-func layoutLegendAdaptive(p *charts.Painter, legendTexts []string, availTextWidth, availHeight int) legendLayoutResult {
+func layoutLegendAdaptive(p *charts.Painter, legendTexts []string, availTextWidth, availHeight, scale int) legendLayoutResult {
+	minLineHeight := 12 * scale
+	minItemGap := 6 * scale
 	// 默认值，防止极端场景除零
 	best := legendLayoutResult{
-		fontSize:    8,
-		lineHeight:  12,
-		itemGap:     6,
+		fontSize:    float64(8 * scale),
+		lineHeight:  minLineHeight,
+		itemGap:     minItemGap,
 		totalHeight: 0,
 		items:       make([][]string, 0, len(legendTexts)),
 	}
-	for font := 11.0; font >= 8.0; font -= 1.0 {
+	for font := float64(11 * scale); font >= float64(8*scale); font -= float64(scale) {
 		lineHeight := int(font*1.45 + 0.5)
-		if lineHeight < 12 {
-			lineHeight = 12
+		if lineHeight < minLineHeight {
+			lineHeight = minLineHeight
 		}
 		itemGap := int(font*0.9 + 0.5)
-		if itemGap < 6 {
-			itemGap = 6
+		if itemGap < minItemGap {
+			itemGap = minItemGap
 		}
 		p.SetTextStyle(charts.Style{FontSize: font})
 		totalHeight := 0
@@ -683,16 +695,17 @@ func drawRightLegendAdaptive(
 	theme charts.ColorPalette,
 	font *truetype.Font,
 	legendTexts []string,
-	startX, startY, availWidth, availHeight int,
+	startX, startY, availWidth, availHeight, scale int,
 ) legendLayoutResult {
 	if len(legendTexts) == 0 {
 		return legendLayoutResult{}
 	}
-	iconWidth := 22
-	iconGap := 10
+	iconWidth := 22 * scale
+	iconGap := 10 * scale
+	textPadding := 10 * scale
 	textX := startX + iconWidth + iconGap
-	textWidth := availWidth - iconWidth - iconGap - 10
-	layout := layoutLegendAdaptive(p, legendTexts, textWidth, availHeight)
+	textWidth := availWidth - iconWidth - iconGap - textPadding
+	layout := layoutLegendAdaptive(p, legendTexts, textWidth, availHeight, scale)
 	p.SetTextStyle(charts.Style{
 		FontSize:  layout.fontSize,
 		FontColor: hexColor("EAF2FF"),
@@ -705,7 +718,7 @@ func drawRightLegendAdaptive(
 		p.SetDrawingStyle(charts.Style{
 			StrokeColor: color,
 			FillColor:   color.WithAlpha(220),
-			StrokeWidth: 3.2,
+			StrokeWidth: 3.2 * float64(scale),
 		})
 		p.LineStroke([]charts.Point{
 			{X: startX, Y: iconY},
@@ -724,10 +737,10 @@ func drawRightLegendAdaptive(
 
 // maskLibraryAxisSplitLines 用背景色实线覆盖库可能画出的 Y 轴分割线，移除绿/白间残留虚线
 func maskLibraryAxisSplitLines(p *charts.Painter, left, top, right, bottom int) {
-	bg := hexColor("060913")
+	bg := hexColor(chartBgHex)
 	p.SetDrawingStyle(charts.Style{
 		StrokeColor:     bg,
-		StrokeWidth:     2,
+		StrokeWidth:     float64(2 * chartScale),
 		StrokeDashArray: nil, // 实线
 	})
 	for i := 1; i <= 5; i++ {
@@ -736,13 +749,13 @@ func maskLibraryAxisSplitLines(p *charts.Painter, left, top, right, bottom int) 
 	}
 }
 
-func drawDashedGrid(p *charts.Painter, left, top, right, bottom int) {
+func drawDashedGrid(p *charts.Painter, left, top, right, bottom, scale int) {
 	// 仅绘制纵向虚线网格，不绘制横向虚线，避免与告警值或视觉上的“多余横线”混淆
 	gridColor := charts.Color{R: 220, G: 230, B: 255, A: 55}
 	p.SetDrawingStyle(charts.Style{
 		StrokeColor:     gridColor,
-		StrokeWidth:     1,
-		StrokeDashArray: []float64{3, 6},
+		StrokeWidth:     float64(1 * scale),
+		StrokeDashArray: []float64{3 * float64(scale), 6 * float64(scale)},
 	})
 	vCount := 8
 	for i := 0; i <= vCount; i++ {
@@ -751,12 +764,12 @@ func drawDashedGrid(p *charts.Painter, left, top, right, bottom int) {
 	}
 }
 
-func drawPlotBorder(p *charts.Painter, left, top, right, bottom int) {
+func drawPlotBorder(p *charts.Painter, left, top, right, bottom, scale int) {
 	// 外框保持较弱，避免抢主轴视觉
 	borderColor := charts.Color{R: 210, G: 220, B: 240, A: 95}
 	p.SetDrawingStyle(charts.Style{
 		StrokeColor: borderColor,
-		StrokeWidth: 1.0,
+		StrokeWidth: 1.0 * float64(scale),
 	})
 	p.LineStroke([]charts.Point{{X: left, Y: top}, {X: right, Y: top}})
 	p.LineStroke([]charts.Point{{X: right, Y: top}, {X: right, Y: bottom}})
@@ -766,28 +779,28 @@ func drawPlotBorder(p *charts.Painter, left, top, right, bottom int) {
 	// 主轴做同位叠加（辉光 + 主白线），保持你标注的干净 L 形白线
 	p.SetDrawingStyle(charts.Style{
 		StrokeColor: charts.Color{R: 225, G: 236, B: 255, A: 110},
-		StrokeWidth: 5.0,
+		StrokeWidth: 5.0 * float64(scale),
 	})
 	p.LineStroke([]charts.Point{{X: left, Y: top}, {X: left, Y: bottom}})
 	p.LineStroke([]charts.Point{{X: left, Y: bottom}, {X: right, Y: bottom}})
 
 	p.SetDrawingStyle(charts.Style{
 		StrokeColor: charts.Color{R: 255, G: 255, B: 255, A: 255},
-		StrokeWidth: 2.6,
+		StrokeWidth: 2.6 * float64(scale),
 	})
 	p.LineStroke([]charts.Point{{X: left, Y: bottom}, {X: right, Y: bottom}})
 	p.LineStroke([]charts.Point{{X: left, Y: top}, {X: left, Y: bottom}})
 }
 
-func drawAxisTicks(p *charts.Painter, left, top, right, bottom, xCount int) {
+func drawAxisTicks(p *charts.Painter, left, top, right, bottom, xCount, scale int) {
 	tickColor := charts.Color{R: 255, G: 255, B: 255, A: 255}
 	p.SetDrawingStyle(charts.Style{
 		StrokeColor: tickColor,
-		StrokeWidth: 1.8,
+		StrokeWidth: 1.8 * float64(scale),
 	})
 	// Y ticks: 6 段（7个刻度点）
 	yDiv := 6
-	tickLen := 11
+	tickLen := 11 * scale
 	for i := 0; i <= yDiv; i++ {
 		y := top + (bottom-top)*i/yDiv
 		p.LineStroke([]charts.Point{{X: left - tickLen, Y: y}, {X: left, Y: y}})
@@ -830,14 +843,13 @@ func renderLineChart(title string, xLabels []string, seriesValues [][]float64, l
 			legendRight[i] = legendLabels[i]
 		}
 	}
-	// 线性图（折线图）：与 Python 布局一致 1400×700，深色主题，图例右上角。
-	const chartWidth = 1400
-	const chartHeight = 700
-	const padLeft = 82
-	const padTop = 80
-	// 右侧留边缩窄，扩大主图绘制区域（按最终定版比例）
-	const padRight = 300
-	const padBottom = 88
+	// 线性图（折线图）：与 Python Plotly 一致 2800×1400（scale=2），深色主题，图例右上角。
+	chartWidth := chartBaseWidth * chartScale
+	chartHeight := chartBaseHeight * chartScale
+	padLeft := 82 * chartScale
+	padTop := 80 * chartScale
+	padRight := 300 * chartScale
+	padBottom := 88 * chartScale
 	isPct := isPercentMetric(title, legendLabels)
 	maxVal := maxSeriesValue(seriesValues)
 	axisMin := 0.0
@@ -885,18 +897,18 @@ func renderLineChart(title string, xLabels []string, seriesValues [][]float64, l
 			Data:        xAxisLabels,
 			FontColor:   hexColor("FFFFFF"),
 			StrokeColor: hexColor("FFFFFF"),
-			FontSize:    12,
+			FontSize:    12 * chartScale,
 			BoundaryGap: charts.FalseFlag(), // 禁用留白，确保刻度精准对齐垂直线
 			TextRotation: -math.Pi / 4,      // 与 Python/matplotlib 一致：45° 倾斜
 			LabelOffset: charts.Box{
-				Top:  14, // 时间刻度贴近下轴外侧（与参考图一致）
-				Left: -2,
+				Top:  14 * chartScale, // 时间刻度贴近下轴外侧（与参考图一致）
+				Left: -2 * chartScale,
 			},
 		}),
 		charts.YAxisOptionFunc(charts.YAxisOption{
 			FontColor:     hexColor("FFFFFF"),
 			Color:         hexColor("FFFFFF"),
-			FontSize:      12,
+			FontSize:      12 * chartScale,
 			SplitLineShow: charts.FalseFlag(),
 			Min:           &axisMin,
 			Max:           &axisMax,
@@ -912,7 +924,7 @@ func renderLineChart(title string, xLabels []string, seriesValues [][]float64, l
 		charts.ThemeOptionFunc(themeAlertDark),
 		func(opt *charts.ChartOption) {
 			opt.FillArea = false // 线性图：仅折线，不填充区域
-			opt.LineStrokeWidth = 3.0
+			opt.LineStrokeWidth = 3.0 * float64(chartScale)
 			f := false
 			opt.SymbolShow = &f
 			opt.Legend.Show = &f // 彻底关闭自带图例，因为我们要自己画在右侧
@@ -941,43 +953,44 @@ func renderLineChart(title string, xLabels []string, seriesValues [][]float64, l
 	plotRight := chartWidth - padRight
 	plotBottom := chartHeight - padBottom
 	maskLibraryAxisSplitLines(painter, plotLeft, plotTop, plotRight, plotBottom)
-	drawDashedGrid(painter, plotLeft, plotTop, plotRight, plotBottom)
-	drawPlotBorder(painter, plotLeft, plotTop, plotRight, plotBottom)
-	drawAxisTicks(painter, plotLeft, plotTop, plotRight, plotBottom, len(xAxisLabels))
+	drawDashedGrid(painter, plotLeft, plotTop, plotRight, plotBottom, chartScale)
+	drawPlotBorder(painter, plotLeft, plotTop, plotRight, plotBottom, chartScale)
+	drawAxisTicks(painter, plotLeft, plotTop, plotRight, plotBottom, len(xAxisLabels), chartScale)
 	wqyFontObj, _ := charts.GetFont("arial-unicode")
-	drawManualYAxisLabels(painter, wqyFontObj, plotLeft, plotTop, plotBottom, isPct, axisMax)
+	drawManualYAxisLabels(painter, wqyFontObj, plotLeft, plotTop, plotBottom, isPct, axisMax, chartScale)
 
 	// === 手动在顶部物理居中绘制标题 ===
 	painter.SetTextStyle(charts.Style{
-		FontSize:  25,
+		FontSize:  25 * chartScale,
 		FontColor: hexColor("F3F7FF"),
 		Font:      wqyFontObj,
 	})
 	titleBox := painter.MeasureText(title)
 	// 计算物理居中: (整图宽度 - 文字宽度) / 2
 	titleX := (chartWidth - titleBox.Width()) / 2
-	titleY := 40 // 标题与主图更贴合
+	titleY := 40 * chartScale // 标题与主图更贴合
 	painter.Text(title, titleX, titleY)
 	// 底部居中完整时间（与参考图一致）
 	painter.SetTextStyle(charts.Style{
-		FontSize:  12,
+		FontSize:  12 * chartScale,
 		FontColor: hexColor("EAF2FF"),
 		Font:      wqyFontObj,
 	})
 	centerBox := painter.MeasureText(xCenterText)
 	centerX := (chartWidth - centerBox.Width()) / 2
-	centerY := chartHeight - 16 // 完整时间上移，避免贴到底边
+	centerY := chartHeight - 16*chartScale // 完整时间上移，避免贴到底边
 	painter.Text(xCenterText, centerX, centerY)
 
 	// === 右侧图例自适应绘制：先换行，再按高度缩放字号，确保全部显示 ===
-	legendX := chartWidth - padRight + 12
-	legendY := padTop - 8
-	legendWidth := padRight - 16
+	legendX := chartWidth - padRight + 12*chartScale
+	legendY := padTop - 8*chartScale
+	legendWidth := padRight - 16*chartScale
 	legendHeight := chartHeight - padBottom - legendY
 	theme := charts.NewTheme(themeAlertDark)
 	legendLayout := drawRightLegendAdaptive(
 		painter, theme, wqyFontObj, legendRight,
 		legendX, legendY, legendWidth, legendHeight,
+		chartScale,
 	)
 
 	// #region agent log
