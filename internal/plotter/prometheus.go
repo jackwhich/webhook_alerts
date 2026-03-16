@@ -349,7 +349,7 @@ func parseResult(result []struct {
 		timeSet[t] = struct{}{}
 	}
 	for t := range timeSet {
-		xLabels = append(xLabels, time.Unix(int64(t), 0).Format("15:04"))
+		xLabels = append(xLabels, time.Unix(int64(t), 0).Format("15:04:05"))
 	}
 	// 使用第一条 series 的时间作为 X 轴。Prometheus/VM query_range 返回的 value 为 JSON 字符串（如 "123.45"），需同时支持 float64 与 string。
 	for _, s := range result {
@@ -389,7 +389,7 @@ func parseResult(result []struct {
 		for _, pair := range result[0].Values {
 			if len(pair) >= 1 {
 				if t, ok := pair[0].(float64); ok {
-					xLabels = append(xLabels, time.Unix(int64(t), 0).Format("15:04"))
+					xLabels = append(xLabels, time.Unix(int64(t), 0).Format("15:04:05"))
 				}
 			}
 		}
@@ -397,17 +397,38 @@ func parseResult(result []struct {
 	return xLabels, values, legends
 }
 
+// maxLegendRunes 图例最大字符数（超长截断），与 Python _build_series_label 的 90 字符思路一致，避免被裁剪。
+const maxLegendRunes = 48
+
 func buildLegend(metric map[string]string) string {
-	parts := []string{}
+	// 优先展示 uri、server_name（与 nginx 等告警最相关），其余按 key 排序
+	order := []string{"uri", "server_name", "status", "instance", "job"}
+	seen := make(map[string]bool)
+	var parts []string
+	for _, k := range order {
+		if v, ok := metric[k]; ok && k != "__name__" {
+			parts = append(parts, k+"="+v)
+			seen[k] = true
+		}
+	}
 	for k, v := range metric {
-		if k != "__name__" {
+		if !seen[k] && k != "__name__" {
 			parts = append(parts, k+"="+v)
 		}
 	}
 	if len(parts) == 0 {
 		return metric["__name__"]
 	}
-	return strings.Join(parts, ",")
+	s := strings.Join(parts, ",")
+	return truncateLegend(s)
+}
+
+func truncateLegend(s string) string {
+	r := []rune(s)
+	if len(r) <= maxLegendRunes {
+		return s
+	}
+	return string(r[:maxLegendRunes-3]) + "..."
 }
 
 func renderLineChart(title string, xLabels []string, seriesValues [][]float64, legendLabels []string) ([]byte, error) {
@@ -434,11 +455,25 @@ func renderLineChart(title string, xLabels []string, seriesValues [][]float64, l
 	for i := range seriesValues {
 		seriesValues[i] = seriesValues[i][:nPoints]
 	}
+	// 图例追加告警值（取该条曲线最后一个点，与 Python _legend_line_with_alert_value 一致）
+	legendWithValue := make([]string, len(legendLabels))
+	for i, lbl := range legendLabels {
+		if i < len(seriesValues) && len(seriesValues[i]) > 0 {
+			last := seriesValues[i][len(seriesValues[i])-1]
+			legendWithValue[i] = lbl + " 告警值" + fmt.Sprintf("%.1f", last)
+		} else {
+			legendWithValue[i] = lbl
+		}
+	}
 	opts := []charts.OptionFunc{
 		charts.TitleTextOptionFunc(title),
 		charts.XAxisDataOptionFunc(xLabels),
-		charts.LegendLabelsOptionFunc(legendLabels, charts.PositionRight),
+		charts.LegendLabelsOptionFunc(legendWithValue, charts.PositionRight),
 		charts.ThemeOptionFunc(charts.ThemeDark),
+		func(opt *charts.ChartOption) {
+			opt.FillArea = true
+			opt.LineStrokeWidth = 2.0
+		},
 	}
 	painter, err := charts.LineRender(seriesValues, opts...)
 	if err != nil {
