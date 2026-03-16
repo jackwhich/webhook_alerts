@@ -131,8 +131,8 @@ type PrometheusPlotter struct {
 var annotationKeysForExpr = []string{"expr", "query", "__expr__"}
 
 // Generate 请求 query_range 并渲染 PNG，失败或无数据时返回 nil。
-// 步骤：1) 从告警 Graph URL 取 g0.expr（已 URL decode）；2) 若无则从 annotations 取 expr/query/__expr__；3) 调 VM/Prometheus API 时优先用 config 的 prometheus_url（与 Python 一致，内网可达），否则才用 generatorURL 解析。labels 收窄查询；logExpr 可选，用于打日志。
-func (p *PrometheusPlotter) Generate(generatorURL, alertname string, labels map[string]string, annotations map[string]string, logExpr func(expr string)) ([]byte, error) {
+// 步骤：1) 从告警 Graph URL 取 g0.expr（已 URL decode）；2) 若无则从 annotations 取 expr/query/__expr__；3) 调 VM/Prometheus API 时优先用 config 的 prometheus_url（与 Python 一致，内网可达），否则才用 generatorURL 解析。labels 收窄查询；logExpr 可选，用于打日志；logQueryRangeResult 可选，用于打 query_range 请求/返回日志（resultCount=-1 表示即将请求）。
+func (p *PrometheusPlotter) Generate(generatorURL, alertname string, labels map[string]string, annotations map[string]string, logExpr func(expr string), logQueryRangeResult func(apiURL, expr string, resultCount int, status string)) ([]byte, error) {
 	expr, err := parseExprFromGeneratorURL(generatorURL)
 	if (err != nil || expr == "") && len(annotations) > 0 {
 		for _, key := range annotationKeysForExpr {
@@ -193,6 +193,9 @@ func (p *PrometheusPlotter) Generate(generatorURL, alertname string, labels map[
 	params.Set("end", fmt.Sprintf("%d", now.Unix()))
 	params.Set("step", step)
 
+	if logQueryRangeResult != nil {
+		logQueryRangeResult(apiURL, expr, -1, "request")
+	}
 	req, _ := http.NewRequest(http.MethodPost, apiURL, strings.NewReader(params.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	client := p.HTTPClient
@@ -210,11 +213,18 @@ func (p *PrometheusPlotter) Generate(generatorURL, alertname string, labels map[
 	metrics.PrometheusRequestDuration.Observe(time.Since(t0).Seconds())
 	if err != nil {
 		metrics.PrometheusRequestsTotal.WithLabelValues("error").Inc()
+		if logQueryRangeResult != nil {
+			logQueryRangeResult(apiURL, expr, 0, "error: "+err.Error())
+		}
 		return nil, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		metrics.PrometheusRequestsTotal.WithLabelValues("error").Inc()
+		errMsg := fmt.Sprintf("status %d", resp.StatusCode)
+		if logQueryRangeResult != nil {
+			logQueryRangeResult(apiURL, expr, 0, errMsg)
+		}
 		return nil, fmt.Errorf("query_range 请求返回状态码 %d", resp.StatusCode)
 	}
 	metrics.PrometheusRequestsTotal.WithLabelValues("ok").Inc()
@@ -229,7 +239,13 @@ func (p *PrometheusPlotter) Generate(generatorURL, alertname string, labels map[
 		} `json:"data"`
 	}
 	if decErr := json.NewDecoder(resp.Body).Decode(&payload); decErr != nil {
+		if logQueryRangeResult != nil {
+			logQueryRangeResult(apiURL, expr, 0, "decode_error: "+decErr.Error())
+		}
 		return nil, decErr
+	}
+	if logQueryRangeResult != nil {
+		logQueryRangeResult(apiURL, expr, len(payload.Data.Result), payload.Status)
 	}
 	if payload.Status != "success" || len(payload.Data.Result) == 0 {
 		return nil, nil

@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/jackwhich/webhook_alerts/internal/config"
@@ -132,13 +134,35 @@ func (s *ImageService) generatePrometheusImage(ctx context.Context, logObj *logg
 			},
 		}
 	}
+	// 解析 generatorURL：先 URI 再 URL decode，便于排查「无数据」时是否拿到表达式
+	var decodedExpr string
+	if alert.GeneratorURL != "" {
+		if u, parseErr := url.Parse(alert.GeneratorURL); parseErr == nil {
+			decodedExpr = strings.TrimSpace(u.Query().Get("g0.expr"))
+		}
+	}
+	logObj.WithContext(ctx).Info().
+		Str("event", "generator_url_parsed").
+		Str("generator_url", alert.GeneratorURL).
+		Str("g0_expr_decoded", decodedExpr).
+		Msg("解析 generatorURL：原始 URI → g0.expr URL 解码后（空表示 URL 无 g0.expr 或需从 annotations 取）")
+
 	logExpr := func(expr string) {
 		logObj.WithContext(ctx).Info().
 			Str("event", "expr").
 			Str("expr", expr).
 			Msg("出图使用的表达式")
 	}
-	png, err := p.Generate(alert.GeneratorURL, alertname, alert.Labels, alert.Annotations, logExpr)
+	logQueryRangeResult := func(apiURL, expr string, resultCount int, status string) {
+		logObj.WithContext(ctx).Info().
+			Str("event", "query_range").
+			Str("api_url", apiURL).
+			Str("expr", expr).
+			Int("result_count", resultCount).
+			Str("status", status).
+			Msg("用解码后的表达式请求 query_range 的请求/返回日志")
+	}
+	png, err := p.Generate(alert.GeneratorURL, alertname, alert.Labels, alert.Annotations, logExpr, logQueryRangeResult)
 	if err != nil {
 		metrics.ImageGeneratedTotal.WithLabelValues("prometheus", "fail").Inc()
 		logObj.WithContext(ctx).Warn().
