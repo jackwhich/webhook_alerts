@@ -9,7 +9,7 @@
 - 识别 Prometheus (version=4) 与 Grafana (version=1) Webhook，统一解析
 - 按 `config.yaml` 路由规则匹配渠道，支持正则
 - Jenkins / Grafana 去重
-- 可选趋势图：从 generatorURL 解析 `g0.expr`，请求 Prometheus/VM query_range，用 **go-charts** 生成 PNG（dark/grafana 风格）
+- 可选趋势图：从 generatorURL 的 `g0.expr` 或告警 **annotations**（`expr`/`query`/`__expr__`）取表达式，请求 Prometheus/VM query_range，用 **go-charts** 生成 PNG（兼容 VictoriaMetrics/vmalert）
 - Telegram / Slack (Webhook) 发送，连接池与重试
 - Prometheus 指标：`/metrics` 暴露告警接收量、路由、发送成功/失败（按渠道）、出图、query_range 请求等
 

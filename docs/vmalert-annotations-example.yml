@@ -1,0 +1,44 @@
+# vmalert 告警规则：通过 annotations.expr 让 alert-router-go 出趋势图
+#
+# 当 generatorURL 里没有 g0.expr 时，alert-router-go 会从告警的 annotations 里取表达式，
+# 依次尝试 key：expr、query、__expr__。vmalert 支持在 annotations 里用 {{ $expr }} 表示当前规则的表达式。
+#
+# 只需在每条需要出图的规则的 annotations 里增加一行：expr: "{{ $expr }}"
+# 保留原有 summary、description 等即可。
+#
+# 完整示例（复制到你的 vmalert rules 里即可）：
+
+groups:
+  - name: nginx-log-rules
+    rules:
+      - alert: nginx状态码5XX错误
+        expr: sum(nginx_log_domain_400_500{status=~"50.*"}) by (status) >= 50
+        for: 0m
+        labels:
+          severity: "警告"
+        annotations:
+          summary: "nginx 1分钟内状态码5XX大于50|当前值：{{ $value }}"
+          # 下面这一行用于 alert-router-go 出图：把当前规则的表达式传给 webhook，无 g0.expr 时从 annotations 取
+          expr: "{{ $expr }}"
+
+      - alert: nginx状态码4XX错误
+        expr: sum(nginx_log_domain_400_500{status=~"4.*.*"}) by (server_name, status) >= 200
+        for: 0m
+        labels:
+          severity: "警告"
+        annotations:
+          summary: "nginx 1分钟内状态码4XX大于200|当前值：{{ $value }}"
+          expr: "{{ $expr }}"
+
+  # 再举一个带 description 的
+  - name: example-with-description
+    rules:
+      - alert: 示例告警
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: "严重"
+        annotations:
+          summary: "实例 {{ $labels.instance }} 宕机"
+          description: "超过 1 分钟未上报，当前值 {{ $value }}"
+          expr: "{{ $expr }}"

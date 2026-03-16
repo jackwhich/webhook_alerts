@@ -127,9 +127,21 @@ type PrometheusPlotter struct {
 	InjectLabels bool   // 仅当 Datasource 为 prometheus 时生效：是否向表达式注入 label 收窄查询
 }
 
-// Generate 请求 query_range 并渲染 PNG，失败或无数据时返回 nil。labels 用于 datasource=auto/victoriametrics 或 inject_labels 时收窄查询。
-func (p *PrometheusPlotter) Generate(generatorURL, alertname string, labels map[string]string) ([]byte, error) {
+// annotationKeysForExpr 当 generatorURL 无 g0.expr 时，尝试从 annotations 取表达式的 key 顺序（vmalert 等可能把 expr 放在这里）。
+var annotationKeysForExpr = []string{"expr", "query", "__expr__"}
+
+// Generate 请求 query_range 并渲染 PNG，失败或无数据时返回 nil。labels 用于收窄查询；annotations 可选，当 URL 无 g0.expr 时尝试从 annotations 取表达式以支持 vmalert 等。
+func (p *PrometheusPlotter) Generate(generatorURL, alertname string, labels map[string]string, annotations map[string]string) ([]byte, error) {
 	expr, err := parseExprFromGeneratorURL(generatorURL)
+	if (err != nil || expr == "") && len(annotations) > 0 {
+		for _, key := range annotationKeysForExpr {
+			if v := annotations[key]; v != "" {
+				expr = strings.TrimSpace(v)
+				err = nil
+				break
+			}
+		}
+	}
 	if err != nil || expr == "" {
 		return nil, err
 	}
