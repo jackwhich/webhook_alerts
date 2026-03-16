@@ -120,7 +120,7 @@ func (s *AlertService) processSingleAlert(ctx context.Context, logObj *logger.Lo
 	// 生成趋势图
 	var imageBytes []byte
 	if s.ImageService != nil {
-		imageBytes = s.ImageService.GenerateImage(alert.Source, alert, alertStatus, targetChannels, alertname)
+		imageBytes = s.ImageService.GenerateImage(ctx, logObj, alert.Source, alert, alertStatus, targetChannels, alertname)
 	}
 	sendMode := "图片+文本"
 	if len(imageBytes) == 0 {
