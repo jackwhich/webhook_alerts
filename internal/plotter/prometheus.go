@@ -65,7 +65,7 @@ func injectAlertLabelsIntoExpr(expr string, labels map[string]string) string {
 	}
 	matchLabels := make(map[string]string)
 	for k, v := range labels {
-		if _, skip := alertOnlyLabels[k]; skip || v == "" {
+		if _, skip := alertOnlyLabels[k]; skip || v == "" || strings.Contains(v, ",") {
 			continue
 		}
 		matchLabels[k] = v
