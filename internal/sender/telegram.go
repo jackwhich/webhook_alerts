@@ -3,6 +3,7 @@ package sender
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -80,16 +81,24 @@ func SendTelegram(ch *config.Channel, body string, photoBytes []byte) SendResult
 		reason := classifyError(err)
 		metrics.IncAlertsSent(channelName, "failure")
 		metrics.IncAlertsSendFailure(channelName, reason)
-		return SendResult{Channel: channelName, Success: false, Reason: reason}
+		return SendResult{Channel: channelName, Success: false, Reason: reason, Detail: err.Error()}
 	}
 	defer resp.Body.Close()
+	bodyBytes, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		metrics.IncAlertsSent(channelName, "failure")
 		metrics.IncAlertsSendFailure(channelName, "http_error")
-		return SendResult{Channel: channelName, Success: false, Reason: "http_error"}
+		detail := fmt.Sprintf("status=%d", resp.StatusCode)
+		if len(bodyBytes) > 0 {
+			if len(bodyBytes) > 200 {
+				detail += " body=" + string(bodyBytes[:200]) + "..."
+			} else {
+				detail += " body=" + string(bodyBytes)
+			}
+		}
+		return SendResult{Channel: channelName, Success: false, Reason: "http_error", Detail: detail}
 	}
 	// Telegram 可能返回 200 但 body 里 ok:false
-	bodyBytes, _ := io.ReadAll(resp.Body)
 	var tgResp struct {
 		OK bool `json:"ok"`
 	}

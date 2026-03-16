@@ -174,13 +174,20 @@ func (s *AlertService) processSingleAlert(ctx context.Context, logObj *logger.Lo
 				Str("channel_type", ch.Type).
 				Msgf("[Webhook] 告警 %s 渠道 %s (%s) 发送成功", alertname, channelName, ch.Type)
 		} else {
-			logObj.WithContext(ctx).Warn().
+			ev := logObj.WithContext(ctx).Warn().
 				Str("event", "send_fail").
 				Str("alertname", alertname).
 				Str("channel", channelName).
 				Str("channel_type", ch.Type).
-				Str("reason", res.Reason).
-				Msgf("[Webhook] 告警 %s 渠道 %s (%s) 发送失败: %s", alertname, channelName, ch.Type, reasonForLog(res.Reason))
+				Str("reason", res.Reason)
+			if res.Detail != "" {
+				ev = ev.Str("detail", res.Detail)
+			}
+			msg := reasonForLog(res.Reason)
+			if res.Detail != "" {
+				msg = msg + " (" + res.Detail + ")"
+			}
+			ev.Msgf("[Webhook] 告警 %s 渠道 %s (%s) 发送失败: %s", alertname, channelName, ch.Type, msg)
 		}
 	}
 	return results
