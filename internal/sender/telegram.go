@@ -30,11 +30,10 @@ var defaultClient = &http.Client{
 func SendTelegram(ch *config.Channel, body string, photoBytes []byte) SendResult {
 	channelName := ch.Name
 	parseMode := template.DetectParseMode(ch.Template)
-	if parseMode == "" {
-		body = strings.ReplaceAll(body, "<br>", "\n")
-		body = strings.ReplaceAll(body, "<br/>", "\n")
-		body = strings.ReplaceAll(body, "<br />", "\n")
-	}
+	// Telegram HTML 不支持 <br>，统一换成换行，避免 400 Unsupported start tag "br"
+	body = strings.ReplaceAll(body, "<br>", "\n")
+	body = strings.ReplaceAll(body, "<br/>", "\n")
+	body = strings.ReplaceAll(body, "<br />", "\n")
 	text := strings.TrimSpace(body)
 	if text == "" {
 		text = " "
