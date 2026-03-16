@@ -5,6 +5,7 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -14,11 +15,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/golang/freetype/truetype"
 	"github.com/jackwhich/webhook_alerts/internal/metrics"
 	charts "github.com/vicanso/go-charts/v2"
 )
 
-//go:embed fonts/wqy-microhei.ttc
+//go:embed fonts/arial-unicode.ttf
 var wqyFont embed.FS
 
 const pngSignature = "\x89PNG\r\n\x1a\n"
@@ -30,20 +32,31 @@ const themeAlertDark = "alert-dark"
 
 func init() {
 	// 加载中文字体
-	if fontData, err := wqyFont.ReadFile("fonts/wqy-microhei.ttc"); err == nil {
-		charts.InstallFont("wqy-microhei", fontData)
+	fontData, err := wqyFont.ReadFile("fonts/arial-unicode.ttf")
+	if err == nil {
+		errInstall := charts.InstallFont("arial-unicode", fontData)
+		if errInstall != nil {
+			fmt.Printf("加载字体失败: %v\n", errInstall)
+		} else {
+			// 将注册好的字体直接设为全局默认，防止 go-charts 内部回退为只支持英文的默认字体
+			if f, getErr := charts.GetFont("arial-unicode"); getErr == nil {
+				charts.SetDefaultFont(f)
+			}
+		}
+	} else {
+		fmt.Printf("读取嵌入字体失败: %v\n", err)
 	}
 
-	// 注册深色主题：背景 #0a0a0f、白色文字与坐标轴、与 Python 一致的线条配色
+	// 注册霓虹深色主题：高对比、鲜亮线条、白色文本；轴分割线与背景同色以隐藏库内可能绘制的绿/白间虚线（日志证实在 y=570 的线非本代码绘制）
 	charts.AddTheme(themeAlertDark, charts.ThemeOption{
 		IsDarkMode: true,
-		AxisStrokeColor:    hexColor("ffffff"),
-		AxisSplitLineColor: hexColor("404040"),
-		BackgroundColor:    hexColor("0a0a0f"),
-		TextColor:          hexColor("ffffff"),
+		AxisStrokeColor:    hexColor("DCE6FF"),
+		AxisSplitLineColor: hexColor("060913"),
+		BackgroundColor:    hexColor("060913"),
+		TextColor:          hexColor("F1F5FF"),
 		SeriesColors: []charts.Color{
-			hexColor("FF6B6B"), hexColor("4ECDC4"), hexColor("45B7D1"), hexColor("FFA07A"),
-			hexColor("98D8C8"), hexColor("F7DC6F"), hexColor("BB8FCE"), hexColor("85C1E2"),
+			hexColor("FF4D6D"), hexColor("00E5FF"), hexColor("7DFF72"), hexColor("FFB703"),
+			hexColor("C77DFF"), hexColor("00F5D4"), hexColor("FF8FA3"), hexColor("4CC9F0"),
 		},
 	})
 }
@@ -448,16 +461,338 @@ func truncateLegend(s string) string {
 	return string(r[:maxLegendRunes-3]) + "..."
 }
 
-// legendOptionRightLegend 返回图例选项：靠右、垂直排列，与 Python 一致放在右上角。
-func legendOptionRightLegend(labels []string) charts.OptionFunc {
-	return func(opt *charts.ChartOption) {
-		opt.Legend = charts.LegendOption{
-			Data:   labels,
-			Left:   charts.PositionRight,
-			Top:    "0",
-			Orient: charts.OrientVertical,
+type legendLayoutResult struct {
+	fontSize       float64
+	lineHeight     int
+	itemGap        int
+	totalHeight    int
+	wrappedLineNum int
+	items          [][]string
+}
+
+func isPercentMetric(title string, legendLabels []string) bool {
+	t := strings.ToLower(title)
+	if strings.Contains(t, "cpu") ||
+		strings.Contains(t, "mem") ||
+		strings.Contains(t, "memory") ||
+		strings.Contains(title, "内存") ||
+		strings.Contains(title, "使用率") ||
+		strings.Contains(t, "percent") {
+		return true
+	}
+	for _, lbl := range legendLabels {
+		l := strings.ToLower(lbl)
+		if strings.Contains(l, "cpu") ||
+			strings.Contains(l, "mem") ||
+			strings.Contains(l, "memory") ||
+			strings.Contains(lbl, "内存") ||
+			strings.Contains(lbl, "使用率") ||
+			strings.Contains(l, "percent") {
+			return true
 		}
 	}
+	return false
+}
+
+func formatYAxisValue(v float64, percent bool) string {
+	if percent {
+		return fmt.Sprintf("%.1f%%", v)
+	}
+	abs := v
+	if abs < 0 {
+		abs = -abs
+	}
+	if abs >= 1000 {
+		return fmt.Sprintf("%.2f K", v/1000)
+	}
+	if v == float64(int64(v)) {
+		return fmt.Sprintf("%.0f", v)
+	}
+	return fmt.Sprintf("%.1f", v)
+}
+
+func maxSeriesValue(seriesValues [][]float64) float64 {
+	maxV := 0.0
+	for _, row := range seriesValues {
+		for _, v := range row {
+			if v > maxV {
+				maxV = v
+			}
+		}
+	}
+	return maxV
+}
+
+func drawManualYAxisLabels(
+	p *charts.Painter,
+	font *truetype.Font,
+	left, top, bottom int,
+	isPercent bool,
+	axisMax float64,
+) {
+	p.SetTextStyle(charts.Style{
+		FontSize:  12,
+		FontColor: hexColor("FFFFFF"),
+		Font:      font,
+	})
+	if isPercent {
+		// 0~100%，每 20% 一档
+		for i := 0; i <= 5; i++ {
+			v := float64(i * 20)
+			y := bottom - int((v/100.0)*float64(bottom-top))
+			txt := fmt.Sprintf("%.0f%%", v)
+			box := p.MeasureText(txt)
+			p.Text(txt, left-box.Width()-8, y+box.Height()/2-1)
+		}
+		return
+	}
+	// 非百分比：按 1.00 K 为单位显示到 axisMax-1K，顶部留一档缓冲（贴近图二效果）
+	step := 1000.0
+	if axisMax < 2000 {
+		axisMax = 2000
+	}
+	for v := 0.0; v <= axisMax-step; v += step {
+		y := bottom - int((v/axisMax)*float64(bottom-top))
+		txt := "0"
+		if v > 0 {
+			txt = fmt.Sprintf("%.2f K", v/1000.0)
+		}
+		box := p.MeasureText(txt)
+		p.Text(txt, left-box.Width()-8, y+box.Height()/2-1)
+	}
+}
+
+func normalizeXAxisLabels(raw []string) ([]string, string) {
+	if len(raw) == 0 {
+		return raw, ""
+	}
+	display := make([]string, len(raw))
+	centerText := raw[len(raw)-1]
+	layouts := []string{
+		"2006-01-02 15:04:05",
+		time.RFC3339,
+	}
+	foundFull := false
+	for i, v := range raw {
+		v = strings.TrimSpace(v)
+		short := v
+		for _, l := range layouts {
+			if ts, err := time.Parse(l, v); err == nil {
+				short = ts.Format("15:04:05")
+				if i == len(raw)-1 {
+					centerText = ts.Format("2006-01-02 15:04:05")
+				}
+				foundFull = true
+				break
+			}
+		}
+		display[i] = short
+	}
+	if !foundFull {
+		centerText = raw[len(raw)-1]
+	}
+	return display, centerText
+}
+
+func wrapTextByWidth(p *charts.Painter, text string, maxWidth int) []string {
+	if text == "" {
+		return []string{""}
+	}
+	if maxWidth <= 0 {
+		return []string{text}
+	}
+	runes := []rune(text)
+	var lines []string
+	start := 0
+	for start < len(runes) {
+		end := start + 1
+		lastFit := start + 1
+		for end <= len(runes) {
+			seg := string(runes[start:end])
+			if p.MeasureText(seg).Width() <= maxWidth {
+				lastFit = end
+				end++
+				continue
+			}
+			break
+		}
+		if lastFit == start {
+			lastFit = start + 1
+		}
+		lines = append(lines, string(runes[start:lastFit]))
+		start = lastFit
+	}
+	return lines
+}
+
+func layoutLegendAdaptive(p *charts.Painter, legendTexts []string, availTextWidth, availHeight int) legendLayoutResult {
+	// 默认值，防止极端场景除零
+	best := legendLayoutResult{
+		fontSize:    8,
+		lineHeight:  12,
+		itemGap:     6,
+		totalHeight: 0,
+		items:       make([][]string, 0, len(legendTexts)),
+	}
+	for font := 11.0; font >= 8.0; font -= 1.0 {
+		lineHeight := int(font*1.45 + 0.5)
+		if lineHeight < 12 {
+			lineHeight = 12
+		}
+		itemGap := int(font*0.9 + 0.5)
+		if itemGap < 6 {
+			itemGap = 6
+		}
+		p.SetTextStyle(charts.Style{FontSize: font})
+		totalHeight := 0
+		totalLines := 0
+		items := make([][]string, 0, len(legendTexts))
+		for _, raw := range legendTexts {
+			parts := strings.Split(raw, "\n")
+			itemLines := make([]string, 0, len(parts))
+			for _, part := range parts {
+				itemLines = append(itemLines, wrapTextByWidth(p, part, availTextWidth)...)
+			}
+			if len(itemLines) == 0 {
+				itemLines = []string{""}
+			}
+			items = append(items, itemLines)
+			totalLines += len(itemLines)
+			totalHeight += len(itemLines)*lineHeight + itemGap
+		}
+		if len(items) > 0 {
+			totalHeight -= itemGap
+		}
+		best = legendLayoutResult{
+			fontSize:       font,
+			lineHeight:     lineHeight,
+			itemGap:        itemGap,
+			totalHeight:    totalHeight,
+			wrappedLineNum: totalLines,
+			items:          items,
+		}
+		if totalHeight <= availHeight {
+			return best
+		}
+	}
+	return best
+}
+
+func drawRightLegendAdaptive(
+	p *charts.Painter,
+	theme charts.ColorPalette,
+	font *truetype.Font,
+	legendTexts []string,
+	startX, startY, availWidth, availHeight int,
+) legendLayoutResult {
+	if len(legendTexts) == 0 {
+		return legendLayoutResult{}
+	}
+	iconWidth := 22
+	iconGap := 10
+	textX := startX + iconWidth + iconGap
+	textWidth := availWidth - iconWidth - iconGap - 10
+	layout := layoutLegendAdaptive(p, legendTexts, textWidth, availHeight)
+	p.SetTextStyle(charts.Style{
+		FontSize:  layout.fontSize,
+		FontColor: hexColor("EAF2FF"),
+		Font:      font,
+	})
+	y := startY
+	for i, lines := range layout.items {
+		color := theme.GetSeriesColor(i)
+		iconY := y + layout.lineHeight/2
+		p.SetDrawingStyle(charts.Style{
+			StrokeColor: color,
+			FillColor:   color.WithAlpha(220),
+			StrokeWidth: 3.2,
+		})
+		p.LineStroke([]charts.Point{
+			{X: startX, Y: iconY},
+			{X: startX + iconWidth, Y: iconY},
+		})
+		p.Dots([]charts.Point{{X: startX + iconWidth/2, Y: iconY}})
+		lineY := y + layout.lineHeight
+		for _, line := range lines {
+			p.Text(line, textX, lineY)
+			lineY += layout.lineHeight
+		}
+		y += len(lines)*layout.lineHeight + layout.itemGap
+	}
+	return layout
+}
+
+// maskLibraryAxisSplitLines 用背景色实线覆盖库可能画出的 Y 轴分割线，移除绿/白间残留虚线
+func maskLibraryAxisSplitLines(p *charts.Painter, left, top, right, bottom int) {
+	bg := hexColor("060913")
+	p.SetDrawingStyle(charts.Style{
+		StrokeColor:     bg,
+		StrokeWidth:     2,
+		StrokeDashArray: nil, // 实线
+	})
+	for i := 1; i <= 5; i++ {
+		y := top + (bottom-top)*i/6
+		p.LineStroke([]charts.Point{{X: left, Y: y}, {X: right, Y: y}})
+	}
+}
+
+func drawDashedGrid(p *charts.Painter, left, top, right, bottom int) {
+	// 仅绘制纵向虚线网格，不绘制横向虚线，避免与告警值或视觉上的“多余横线”混淆
+	gridColor := charts.Color{R: 220, G: 230, B: 255, A: 55}
+	p.SetDrawingStyle(charts.Style{
+		StrokeColor:     gridColor,
+		StrokeWidth:     1,
+		StrokeDashArray: []float64{3, 6},
+	})
+	vCount := 8
+	for i := 0; i <= vCount; i++ {
+		x := left + (right-left)*i/vCount
+		p.LineStroke([]charts.Point{{X: x, Y: top}, {X: x, Y: bottom}})
+	}
+}
+
+func drawPlotBorder(p *charts.Painter, left, top, right, bottom int) {
+	// 外框保持较弱，避免抢主轴视觉
+	borderColor := charts.Color{R: 210, G: 220, B: 240, A: 95}
+	p.SetDrawingStyle(charts.Style{
+		StrokeColor: borderColor,
+		StrokeWidth: 1.0,
+	})
+	p.LineStroke([]charts.Point{{X: left, Y: top}, {X: right, Y: top}})
+	p.LineStroke([]charts.Point{{X: right, Y: top}, {X: right, Y: bottom}})
+	p.LineStroke([]charts.Point{{X: left, Y: bottom}, {X: right, Y: bottom}})
+	p.LineStroke([]charts.Point{{X: left, Y: top}, {X: left, Y: bottom}})
+
+	// 主轴做同位叠加（辉光 + 主白线），保持你标注的干净 L 形白线
+	p.SetDrawingStyle(charts.Style{
+		StrokeColor: charts.Color{R: 225, G: 236, B: 255, A: 110},
+		StrokeWidth: 5.0,
+	})
+	p.LineStroke([]charts.Point{{X: left, Y: top}, {X: left, Y: bottom}})
+	p.LineStroke([]charts.Point{{X: left, Y: bottom}, {X: right, Y: bottom}})
+
+	p.SetDrawingStyle(charts.Style{
+		StrokeColor: charts.Color{R: 255, G: 255, B: 255, A: 255},
+		StrokeWidth: 2.6,
+	})
+	p.LineStroke([]charts.Point{{X: left, Y: bottom}, {X: right, Y: bottom}})
+	p.LineStroke([]charts.Point{{X: left, Y: top}, {X: left, Y: bottom}})
+}
+
+func drawAxisTicks(p *charts.Painter, left, top, right, bottom, xCount int) {
+	tickColor := charts.Color{R: 255, G: 255, B: 255, A: 255}
+	p.SetDrawingStyle(charts.Style{
+		StrokeColor: tickColor,
+		StrokeWidth: 1.8,
+	})
+	// Y ticks: 6 段（7个刻度点）
+	yDiv := 6
+	tickLen := 11
+	for i := 0; i <= yDiv; i++ {
+		y := top + (bottom-top)*i/yDiv
+		p.LineStroke([]charts.Point{{X: left - tickLen, Y: y}, {X: left, Y: y}})
+	}
+	// X 轴刻度由库内置渲染，避免与手工 tick 叠加产生“双刻度线”
 }
 
 func renderLineChart(title string, xLabels []string, seriesValues [][]float64, legendLabels []string) ([]byte, error) {
@@ -470,7 +805,8 @@ func renderLineChart(title string, xLabels []string, seriesValues [][]float64, l
 			xLabels[i] = fmt.Sprintf("%d", i)
 		}
 	}
-	// 保证 xLabels 与每条 series 长度一致，避免 go-charts 渲染时 xValues[i] 越界（index out of range [2] with length 2）
+	xAxisLabels, xCenterText := normalizeXAxisLabels(xLabels)
+	// 保证 x 轴标签与每条 series 长度一致，避免 go-charts 渲染越界
 	nPoints := len(xLabels)
 	for _, row := range seriesValues {
 		if len(row) < nPoints {
@@ -480,7 +816,7 @@ func renderLineChart(title string, xLabels []string, seriesValues [][]float64, l
 	if nPoints == 0 {
 		return nil, fmt.Errorf("无数据")
 	}
-	xLabels = xLabels[:nPoints]
+	xAxisLabels = xAxisLabels[:nPoints]
 	for i := range seriesValues {
 		seriesValues[i] = seriesValues[i][:nPoints]
 	}
@@ -497,16 +833,30 @@ func renderLineChart(title string, xLabels []string, seriesValues [][]float64, l
 	// 线性图（折线图）：与 Python 布局一致 1400×700，深色主题，图例右上角。
 	const chartWidth = 1400
 	const chartHeight = 700
-	const padLeft = 60
+	const padLeft = 82
 	const padTop = 80
-	// 右侧留大边距（约 300px）给末端标签
-	const padRight = 360
-	const padBottom = 60
+	// 右侧留边缩窄，扩大主图绘制区域（按最终定版比例）
+	const padRight = 300
+	const padBottom = 88
+	isPct := isPercentMetric(title, legendLabels)
+	maxVal := maxSeriesValue(seriesValues)
+	axisMin := 0.0
+	axisMax := 100.0
+	if !isPct {
+		axisMax = math.Ceil(maxVal/1000.0) * 1000.0
+		if axisMax < 6000 {
+			axisMax = 6000 // 保证可见 1.00K~5.00K
+		}
+		if maxVal >= axisMax {
+			axisMax += 1000
+		}
+	}
 	// #region agent log
 	appendDebugLog("post-fix", "H1", "prometheus.go:renderLineChart", "chart and padded drawing area", map[string]any{
 		"chartWidth": chartWidth, "chartHeight": chartHeight,
 		"padLeft": padLeft, "padTop": padTop, "padRight": padRight, "padBottom": padBottom,
 		"drawingWidth": chartWidth - padLeft - padRight,
+		"isPercentMetric": isPct,
 	})
 	// #endregion
 	// #region agent log
@@ -531,88 +881,113 @@ func renderLineChart(title string, xLabels []string, seriesValues [][]float64, l
 		charts.PaddingOptionFunc(charts.Box{
 			Left: padLeft, Top: padTop, Right: padRight, Bottom: padBottom,
 		}),
+		charts.XAxisOptionFunc(charts.XAxisOption{
+			Data:        xAxisLabels,
+			FontColor:   hexColor("FFFFFF"),
+			StrokeColor: hexColor("FFFFFF"),
+			FontSize:    12,
+			BoundaryGap: charts.FalseFlag(), // 禁用留白，确保刻度精准对齐垂直线
+			TextRotation: -math.Pi / 4,      // 与 Python/matplotlib 一致：45° 倾斜
+			LabelOffset: charts.Box{
+				Top:  14, // 时间刻度贴近下轴外侧（与参考图一致）
+				Left: -2,
+			},
+		}),
+		charts.YAxisOptionFunc(charts.YAxisOption{
+			FontColor:     hexColor("FFFFFF"),
+			Color:         hexColor("FFFFFF"),
+			FontSize:      12,
+			SplitLineShow: charts.FalseFlag(),
+			Min:           &axisMin,
+			Max:           &axisMax,
+		}),
 		func(opt *charts.ChartOption) {
-			opt.FontFamily = "wqy-microhei" // 全局应用中文字体
-			wqyFontObj, _ := charts.GetFont("wqy-microhei")
-			opt.Title = charts.TitleOption{
-				Text:      title,
-				Left:      charts.PositionCenter,
-				FontSize:  24,
-				FontColor: hexColor("ffffff"),
-				Font:      wqyFontObj,
+			opt.FontFamily = "arial-unicode" // 全局应用中文字体
+			// 标题我们将在后面手动绘制，确保绝对物理居中
+			opt.ValueFormatter = func(v float64) string {
+				// Y 轴标签改为手绘，确保位置与图二一致
+				return ""
 			}
 		},
-		charts.XAxisDataOptionFunc(xLabels),
 		charts.ThemeOptionFunc(themeAlertDark),
 		func(opt *charts.ChartOption) {
-			opt.FillArea = false       // 线性图：仅折线，不填充区域
+			opt.FillArea = false // 线性图：仅折线，不填充区域
 			opt.LineStrokeWidth = 3.0
 			f := false
 			opt.SymbolShow = &f
-			opt.Legend.Show = &f       // 彻底关闭自带图例，因为我们要自己画在右侧
+			opt.Legend.Show = &f // 彻底关闭自带图例，因为我们要自己画在右侧
+		},
+		// 防御性再清一次 MarkLine/MarkPoint，避免库内部某处给 Series 填默认值导致仍画虚线
+		func(opt *charts.ChartOption) {
+			for i := range opt.SeriesList {
+				opt.SeriesList[i].MarkLine = charts.SeriesMarkLine{}
+				opt.SeriesList[i].MarkPoint = charts.SeriesMarkPoint{}
+			}
 		},
 	}
-	painter, err := charts.LineRender(seriesValues, opts...)
+	// 自建 SeriesList 并清空 MarkLine/MarkPoint，再交给 Render，避免库绘制 max/min/average 虚线
+	seriesList := charts.NewSeriesListDataFromValues(seriesValues, charts.ChartTypeLine)
+	for i := range seriesList {
+		seriesList[i].MarkLine = charts.SeriesMarkLine{}
+		seriesList[i].MarkPoint = charts.SeriesMarkPoint{}
+	}
+	painter, err := charts.Render(charts.ChartOption{SeriesList: seriesList}, opts...)
 	if err != nil {
 		return nil, err
 	}
+	// 用背景色覆盖库可能画出的 Y 轴分割线，再叠加虚线网格
+	plotLeft := padLeft
+	plotTop := padTop
+	plotRight := chartWidth - padRight
+	plotBottom := chartHeight - padBottom
+	maskLibraryAxisSplitLines(painter, plotLeft, plotTop, plotRight, plotBottom)
+	drawDashedGrid(painter, plotLeft, plotTop, plotRight, plotBottom)
+	drawPlotBorder(painter, plotLeft, plotTop, plotRight, plotBottom)
+	drawAxisTicks(painter, plotLeft, plotTop, plotRight, plotBottom, len(xAxisLabels))
+	wqyFontObj, _ := charts.GetFont("arial-unicode")
+	drawManualYAxisLabels(painter, wqyFontObj, plotLeft, plotTop, plotBottom, isPct, axisMax)
 
-	// === 手动在右侧留白区绘制图例（解决自带图例强制挤压上方区域的问题） ===
-	// 在绘制完毕后，painter.Width() 是 1400，padding 右侧是 360，
-	// 所以我们能在 X = 1050 左右的地方开始写字，从图表上方往下排。
-	legendX := chartWidth - padRight + 20
-	legendY := padTop - 20
-	lineSpacing := 25
-	
-	// 从 go-charts 里获取刚刚注册的字体
-	wqyFontObj, _ := charts.GetFont("wqy-microhei")
-
+	// === 手动在顶部物理居中绘制标题 ===
 	painter.SetTextStyle(charts.Style{
-		FontSize:  11,
-		FontColor: hexColor("ffffff"),
+		FontSize:  25,
+		FontColor: hexColor("F3F7FF"),
 		Font:      wqyFontObj,
 	})
-	
+	titleBox := painter.MeasureText(title)
+	// 计算物理居中: (整图宽度 - 文字宽度) / 2
+	titleX := (chartWidth - titleBox.Width()) / 2
+	titleY := 40 // 标题与主图更贴合
+	painter.Text(title, titleX, titleY)
+	// 底部居中完整时间（与参考图一致）
+	painter.SetTextStyle(charts.Style{
+		FontSize:  12,
+		FontColor: hexColor("EAF2FF"),
+		Font:      wqyFontObj,
+	})
+	centerBox := painter.MeasureText(xCenterText)
+	centerX := (chartWidth - centerBox.Width()) / 2
+	centerY := chartHeight - 16 // 完整时间上移，避免贴到底边
+	painter.Text(xCenterText, centerX, centerY)
+
+	// === 右侧图例自适应绘制：先换行，再按高度缩放字号，确保全部显示 ===
+	legendX := chartWidth - padRight + 12
+	legendY := padTop - 8
+	legendWidth := padRight - 16
+	legendHeight := chartHeight - padBottom - legendY
 	theme := charts.NewTheme(themeAlertDark)
-	for i, text := range legendRight {
-		// 画一个小圆点或者小横线代表颜色
-		color := theme.GetSeriesColor(i)
-		painter.SetDrawingStyle(charts.Style{
-			StrokeColor: color,
-			FillColor:   color,
-			StrokeWidth: 3,
-		})
-		
-		// 画一条短线和圆点
-		lineStartX := legendX
-		lineEndX := legendX + 20
-		dotX := legendX + 10
-		dotY := legendY - 4 // 略微上浮对齐文字中部
-		
-		// 曲线
-		painter.LineStroke([]charts.Point{
-			{X: lineStartX, Y: dotY},
-			{X: lineEndX, Y: dotY},
-		})
-		// 曲线上的点
-		painter.Dots([]charts.Point{{X: dotX, Y: dotY}})
-		
-		// 画两行文字（标签一行、告警值一行）
-		parts := strings.Split(text, "\n")
-		textX := lineEndX + 10
-		currentY := legendY
-		for _, part := range parts {
-			painter.Text(part, textX, currentY)
-			currentY += 16 // 行高
-		}
-		
-		legendY += lineSpacing + 16 // 下一个图例项的 Y 起点
-	}
+	legendLayout := drawRightLegendAdaptive(
+		painter, theme, wqyFontObj, legendRight,
+		legendX, legendY, legendWidth, legendHeight,
+	)
 
 	// #region agent log
 	pngBytes, _ := painter.Bytes()
 	appendDebugLog("post-fix", "H3", "prometheus.go:renderLineChart", "line chart rendered with custom manual legend", map[string]any{
 		"seriesCount": len(seriesValues), "pointsPerSeries": nPoints, "pngBytes": len(pngBytes),
+		"legend_item_count": len(legendRight),
+		"legend_font_size_final": legendLayout.fontSize,
+		"legend_total_height": legendLayout.totalHeight,
+		"legend_wrapped_line_count": legendLayout.wrappedLineNum,
 	})
 	// #endregion
 	return pngBytes, nil

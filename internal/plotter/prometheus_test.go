@@ -3,6 +3,7 @@ package plotter
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 )
 
@@ -12,7 +13,8 @@ import (
 func TestRenderLineChartOutput(t *testing.T) {
 	title := "nginx uri POST请求大于3000"
 	xLabels := []string{
-		"00:00:00", "00:05:00", "00:10:00", "00:15:00", "00:20:00", "00:25:00",
+		"2026-03-17 00:41:00", "2026-03-17 00:42:00", "2026-03-17 00:43:00",
+		"2026-03-17 00:44:00", "2026-03-17 00:45:00", "2026-03-17 00:48:24",
 	}
 	// 模拟 3 条 series，数值略不同
 	seriesValues := [][]float64{
@@ -41,4 +43,38 @@ func TestRenderLineChartOutput(t *testing.T) {
 	}
 
 	t.Logf("图片已写入: %s（可打开查看出图效果）", outPath)
+}
+
+// TestRenderLineChartDenseLegend 生成高密度图例样例，验证右侧自适应布局。
+func TestRenderLineChartDenseLegend(t *testing.T) {
+	title := "nginx 高频告警压测样例"
+	xLabels := []string{
+		"2026-03-17 00:41:00", "2026-03-17 00:42:00", "2026-03-17 00:43:00",
+		"2026-03-17 00:44:00", "2026-03-17 00:45:00", "2026-03-17 00:48:24",
+	}
+	seriesValues := make([][]float64, 12)
+	legendLabels := make([]string, 12)
+	for i := 0; i < 12; i++ {
+		base := float64(800 + i*300)
+		seriesValues[i] = []float64{
+			base + 100, base + 500, base + 800, base + 600, base + 900, base + 700,
+		}
+		legendLabels[i] = "server_name=very-long-domain-" + strconv.Itoa(i) +
+			".example.com,uri=/api/v1/very/long/path/for/layout/adaptive/" + strconv.Itoa(i)
+	}
+
+	png, err := renderLineChart(title, xLabels, seriesValues, legendLabels)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	outDir := "testdata"
+	outPath := filepath.Join(outDir, "alert-chart-dense-legend.png")
+	if err := os.MkdirAll(outDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(outPath, png, 0644); err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("高密度图例图片已写入: %s", outPath)
 }
