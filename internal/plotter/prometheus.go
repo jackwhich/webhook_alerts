@@ -170,13 +170,10 @@ func (p *PrometheusPlotter) Generate(generatorURL, alertname string, labels map[
 		logExpr(expr)
 	}
 
-	// 与 Python 一致：优先使用配置的 prometheus_url（内网可达），否则才从 generatorURL 解析（generatorURL 多为外网/不可达）
+	// 出图只使用配置的 prometheus_url 拉取数据，不做 generatorURL 兜底
 	base := p.BaseURL
 	if base == "" {
-		base, _ = baseFromURL(generatorURL)
-	}
-	if base == "" {
-		return nil, fmt.Errorf("未配置或无法解析 Prometheus/VM 根地址（请配置 prometheus_image.prometheus_url 或保证 generatorURL 可解析）")
+		return nil, fmt.Errorf("未配置 Prometheus/VM 根地址，请配置 prometheus_image.prometheus_url")
 	}
 	// VM/Prometheus 查询一段时间数据：/api/v1/query_range，与 curl --data-urlencode 用法一致（POST + form）
 	apiURL := strings.TrimSuffix(base, "/") + "/api/v1/query_range"
@@ -267,17 +264,6 @@ func parseExprFromGeneratorURL(generatorURL string) (string, error) {
 	q := u.Query()
 	expr := q.Get("g0.expr")
 	return strings.TrimSpace(expr), nil
-}
-
-func baseFromURL(raw string) (string, error) {
-	u, err := url.Parse(raw)
-	if err != nil {
-		return "", err
-	}
-	u.Path = ""
-	u.RawQuery = ""
-	u.Fragment = ""
-	return u.String(), nil
 }
 
 func parseResult(result []struct {

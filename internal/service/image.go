@@ -79,6 +79,7 @@ func (s *ImageService) generatePrometheusImage(ctx context.Context, logObj *logg
 	if datasource == "" {
 		datasource = plotter.DatasourceAuto
 	}
+	promURL, _ := imgCfg["prometheus_url"].(string)
 	channelNames := make([]string, 0, len(imageChannels))
 	for _, ch := range imageChannels {
 		if ch != nil && ch.Name != "" {
@@ -93,8 +94,8 @@ func (s *ImageService) generatePrometheusImage(ctx context.Context, logObj *logg
 		Int("image_channels_count", len(imageChannels)).
 		Strs("image_channels", channelNames).
 		Str("generator_url", alert.GeneratorURL).
+		Str("prometheus_url", promURL).
 		Msg("尝试生成趋势图（出图已开启，datasource=" + datasource + "，请求 VM/Prometheus 使用代理=" + useProxyStr(useProxy) + "）")
-	promURL, _ := imgCfg["prometheus_url"].(string)
 	lookback := 15
 	if v, ok := imgCfg["lookback_minutes"].(int); ok && v > 0 {
 		lookback = v
