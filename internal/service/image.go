@@ -59,21 +59,31 @@ func (s *ImageService) generatePrometheusImage(alert *model.Alert, alertStatus s
 	if v, ok := imgCfg["max_series"].(int); ok && v > 0 {
 		maxSeries = v
 	}
+	datasource := plotter.DatasourceAuto
+	if v, ok := imgCfg["datasource"].(string); ok && v != "" {
+		datasource = v
+	}
+	injectLabels := false
+	if v, ok := imgCfg["inject_labels"].(bool); ok {
+		injectLabels = v
+	}
 	p := s.Plotter
 	if p == nil {
 		p = &plotter.PrometheusPlotter{
-			BaseURL:   promURL,
-			Lookback:  time.Duration(lookback) * time.Minute,
-			Step:      step,
-			Timeout:   time.Duration(timeoutSec) * time.Second,
-			MaxSeries: maxSeries,
+			BaseURL:      promURL,
+			Lookback:     time.Duration(lookback) * time.Minute,
+			Step:         step,
+			Timeout:      time.Duration(timeoutSec) * time.Second,
+			MaxSeries:    maxSeries,
+			Datasource:   datasource,
+			InjectLabels: injectLabels,
 			HTTPClient: &http.Client{
-				Timeout: time.Duration(timeoutSec) * time.Second,
+				Timeout:   time.Duration(timeoutSec) * time.Second,
 				Transport: &http.Transport{MaxIdleConnsPerHost: 10},
 			},
 		}
 	}
-	png, err := p.Generate(alert.GeneratorURL, alertname)
+	png, err := p.Generate(alert.GeneratorURL, alertname, alert.Labels)
 	if err != nil {
 		metrics.ImageGeneratedTotal.WithLabelValues("prometheus", "fail").Inc()
 		return nil

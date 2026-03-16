@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -15,28 +17,149 @@ import (
 
 const pngSignature = "\x89PNG\r\n\x1a\n"
 
-// PrometheusPlotter 从 Prometheus/VM query_range 生成趋势图。
-type PrometheusPlotter struct {
-	BaseURL    string
-	Lookback   time.Duration
-	Step       string
-	Timeout    time.Duration
-	MaxSeries  int
-	HTTPClient *http.Client
+// 数据源类型：config 中 datasource 可选值，用于推断是否注入 label。
+const (
+	DatasourceAuto           = "auto"
+	DatasourcePrometheus     = "prometheus"
+	DatasourceVictoriaMetrics = "victoriametrics"
+)
+
+// 仅用于路由/告警的 label，不注入到查询表达式。
+var alertOnlyLabels = map[string]struct{}{
+	"alertname": {}, "severity": {}, "cluster": {}, "_source": {}, "_receiver": {},
 }
 
-// Generate 请求 query_range 并渲染 PNG，失败或无数据时返回 nil。
-func (p *PrometheusPlotter) Generate(generatorURL, alertname string) ([]byte, error) {
+// normalizeQueryForPlot 将告警表达式转换为更适合出图的查询：剥离末尾的标量比较（如 > 30、>= 0.8），
+// 否则 query_range 返回 0/1 布尔值，图上只显示 0-1 而非真实指标值。与 Python _normalize_query_for_plot 一致。
+func normalizeQueryForPlot(expr string) string {
+	if expr == "" {
+		return expr
+	}
+	normalized := strings.TrimSpace(expr)
+	// 从字符串末尾匹配：可选的空白 + 比较符 + 可选的 bool + 数字 + 结尾空白
+	suffixRe := regexp.MustCompile(`\s*(?:>=|<=|==|!=|>|<)\s*(?:bool\s+)?(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)\s*$`)
+	if loc := suffixRe.FindStringIndex(normalized); loc != nil {
+		if base := strings.TrimSpace(normalized[:loc[0]]); base != "" {
+			return base
+		}
+	}
+	return normalized
+}
+
+// isDatasourceVictoriaMetrics 根据 generatorURL 判断是否来自 VictoriaMetrics（vmalert / vmselect / 带 /select/ 的 VM 集群）。
+func isDatasourceVictoriaMetrics(generatorURL string) bool {
+	if generatorURL == "" {
+		return false
+	}
+	lower := strings.ToLower(generatorURL)
+	return strings.Contains(lower, "victoriametrics") ||
+		strings.Contains(lower, "vmselect") ||
+		strings.Contains(lower, "vmalert") ||
+		strings.Contains(generatorURL, "/select/")
+}
+
+// injectAlertLabelsIntoExpr 将告警的 label 注入到查询表达式的第一个 selector 中，收窄查询（仅标量、且未在 selector 中存在的 key）。
+func injectAlertLabelsIntoExpr(expr string, labels map[string]string) string {
+	if expr == "" || len(labels) == 0 {
+		return expr
+	}
+	matchLabels := make(map[string]string)
+	for k, v := range labels {
+		if _, skip := alertOnlyLabels[k]; skip || v == "" {
+			continue
+		}
+		matchLabels[k] = v
+	}
+	if len(matchLabels) == 0 {
+		return expr
+	}
+	start := strings.Index(expr, "{")
+	if start == -1 {
+		return expr
+	}
+	depth := 1
+	i := start + 1
+	for i < len(expr) && depth > 0 {
+		if expr[i] == '{' {
+			depth++
+		} else if expr[i] == '}' {
+			depth--
+		}
+		i++
+	}
+	if depth != 0 {
+		return expr
+	}
+	end := i - 1
+	inner := expr[start+1 : end]
+	existingKeys := regexp.MustCompile(`(\w+)\s*[=~]`).FindAllStringSubmatch(inner, -1)
+	existingSet := make(map[string]struct{})
+	for _, m := range existingKeys {
+		if len(m) >= 2 {
+			existingSet[m[1]] = struct{}{}
+		}
+	}
+	var toAdd []string
+	for k, v := range matchLabels {
+		if _, exists := existingSet[k]; exists {
+			continue
+		}
+		escaped := strings.ReplaceAll(v, "\\", "\\\\")
+		escaped = strings.ReplaceAll(escaped, "\"", "\\\"")
+		toAdd = append(toAdd, k+"=\""+escaped+"\"")
+	}
+	if len(toAdd) == 0 {
+		return expr
+	}
+	sort.Strings(toAdd)
+	return expr[:end] + "," + strings.Join(toAdd, ",") + expr[end:]
+}
+
+// PrometheusPlotter 从 Prometheus/VM query_range 生成趋势图。
+type PrometheusPlotter struct {
+	BaseURL      string        // Prometheus/VM API 根地址
+	Lookback     time.Duration
+	Step         string
+	Timeout      time.Duration
+	MaxSeries    int
+	HTTPClient   *http.Client
+	Datasource   string // DatasourceAuto | DatasourcePrometheus | DatasourceVictoriaMetrics；auto 时按 generatorURL 推断
+	InjectLabels bool   // 仅当 Datasource 为 prometheus 时生效：是否向表达式注入 label 收窄查询
+}
+
+// Generate 请求 query_range 并渲染 PNG，失败或无数据时返回 nil。labels 用于 datasource=auto/victoriametrics 或 inject_labels 时收窄查询。
+func (p *PrometheusPlotter) Generate(generatorURL, alertname string, labels map[string]string) ([]byte, error) {
 	expr, err := parseExprFromGeneratorURL(generatorURL)
 	if err != nil || expr == "" {
 		return nil, err
 	}
+	// 与 Python 一致：先做「阈值比较剥离」，再按数据源决定是否注入 label
+	plotExpr := normalizeQueryForPlot(expr)
+	// 数据源：auto 时按 generatorURL 推断 Prometheus / VictoriaMetrics
+	effectiveDS := strings.TrimSpace(strings.ToLower(p.Datasource))
+	if effectiveDS == "" {
+		effectiveDS = DatasourceAuto
+	}
+	if effectiveDS == DatasourceAuto {
+		if isDatasourceVictoriaMetrics(generatorURL) {
+			effectiveDS = DatasourceVictoriaMetrics
+		} else {
+			effectiveDS = DatasourcePrometheus
+		}
+	}
+	shouldInject := len(labels) > 0 &&
+		((effectiveDS == DatasourceVictoriaMetrics) || (effectiveDS == DatasourcePrometheus && p.InjectLabels))
+	if shouldInject {
+		plotExpr = injectAlertLabelsIntoExpr(plotExpr, labels)
+	}
+	expr = plotExpr
+
 	base := p.BaseURL
 	if base == "" {
 		base, _ = baseFromURL(generatorURL)
 	}
 	if base == "" {
-		return nil, fmt.Errorf("no prometheus base url")
+		return nil, fmt.Errorf("未配置或无法解析 Prometheus/VM 根地址")
 	}
 	apiURL := strings.TrimSuffix(base, "/") + "/api/v1/query_range"
 	now := time.Now().UTC()
@@ -77,7 +200,7 @@ func (p *PrometheusPlotter) Generate(generatorURL, alertname string) ([]byte, er
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		metrics.PrometheusRequestsTotal.WithLabelValues("error").Inc()
-		return nil, fmt.Errorf("query_range status %d", resp.StatusCode)
+		return nil, fmt.Errorf("query_range 请求返回状态码 %d", resp.StatusCode)
 	}
 	metrics.PrometheusRequestsTotal.WithLabelValues("ok").Inc()
 
@@ -111,7 +234,7 @@ func (p *PrometheusPlotter) Generate(generatorURL, alertname string) ([]byte, er
 	}
 	if len(png) >= len(pngSignature) && string(png[:len(pngSignature)]) != pngSignature {
 		metrics.ImageGeneratedTotal.WithLabelValues("prometheus", "fail").Inc()
-		return nil, fmt.Errorf("chart output is not PNG")
+		return nil, fmt.Errorf("图表输出不是有效 PNG")
 	}
 	metrics.ImageGeneratedTotal.WithLabelValues("prometheus", "ok").Inc()
 	return png, nil
@@ -210,7 +333,7 @@ func buildLegend(metric map[string]string) string {
 
 func renderLineChart(title string, xLabels []string, seriesValues [][]float64, legendLabels []string) ([]byte, error) {
 	if len(seriesValues) == 0 || len(seriesValues[0]) == 0 {
-		return nil, fmt.Errorf("no data")
+		return nil, fmt.Errorf("无数据")
 	}
 	if len(xLabels) == 0 {
 		xLabels = make([]string, len(seriesValues[0]))

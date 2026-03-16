@@ -69,6 +69,7 @@ func Middleware(logger *Logger) func(http.Handler) http.Handler {
 			rw := &responseWriter{ResponseWriter: w, status: http.StatusOK}
 			next.ServeHTTP(rw, r.WithContext(ctx))
 			dur := time.Since(start)
+			ms := dur.Seconds() * 1000
 			ip := clientIP(r)
 			event := requestEventType(r.URL.Path, r.Method)
 			logger.WithContext(ctx).Info().
@@ -78,7 +79,7 @@ func Middleware(logger *Logger) func(http.Handler) http.Handler {
 				Str("path", r.URL.Path).
 				Int("status", rw.status).
 				Dur("duration_ms", dur).
-				Msg(fmt.Sprintf("[%s] %s %s %s → %d (%.0fms)", event, ip, r.Method, r.URL.Path, rw.status, dur.Seconds()*1000))
+				Msg(fmt.Sprintf("[%s] %s %s %s → %d (%.2fms)", event, ip, r.Method, r.URL.Path, rw.status, ms))
 		})
 	}
 }

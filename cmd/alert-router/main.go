@@ -89,12 +89,22 @@ func main() {
 		if step == "" {
 			step = "30s"
 		}
+		datasource := plotter.DatasourceAuto
+		if v, ok := imgCfg["datasource"].(string); ok && v != "" {
+			datasource = v
+		}
+		injectLabels := false
+		if v, ok := imgCfg["inject_labels"].(bool); ok {
+			injectLabels = v
+		}
 		promPlotter = &plotter.PrometheusPlotter{
-			BaseURL:   promURL,
-			Lookback:  time.Duration(lookback) * time.Minute,
-			Step:      step,
-			Timeout:   time.Duration(timeoutSec) * time.Second,
-			MaxSeries: maxSeries,
+			BaseURL:      promURL,
+			Lookback:     time.Duration(lookback) * time.Minute,
+			Step:         step,
+			Timeout:      time.Duration(timeoutSec) * time.Second,
+			MaxSeries:    maxSeries,
+			Datasource:   datasource,
+			InjectLabels: injectLabels,
 			HTTPClient: &http.Client{
 				Timeout:   time.Duration(timeoutSec) * time.Second,
 				Transport: &http.Transport{MaxIdleConnsPerHost: 10},
@@ -136,7 +146,7 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(ctx); err != nil {
-		logObj.C().Warn().Err(err).Msg("Shutdown 超时或异常")
+		logObj.C().Warn().Err(err).Msg("关闭超时或异常")
 	}
 	logObj.C().Info().Msg("服务已优雅退出")
 }

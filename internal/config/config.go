@@ -92,22 +92,22 @@ func normalizeProxyURL(url string) string {
 func Load(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("read config: %w", err)
+		return nil, fmt.Errorf("读取配置: %w", err)
 	}
 	var raw map[string]any
 	if err := yaml.Unmarshal(data, &raw); err != nil {
-		return nil, fmt.Errorf("parse config: %w", err)
+		return nil, fmt.Errorf("解析配置: %w", err)
 	}
 	cfg := &Config{}
 	if err := yaml.Unmarshal(data, cfg); err != nil {
-		return nil, fmt.Errorf("decode config: %w", err)
+		return nil, fmt.Errorf("解码配置: %w", err)
 	}
 	cfg.Raw = raw
 	if err := ValidateLogging(&cfg.Logging); err != nil {
-		return nil, fmt.Errorf("config.yaml: %w", err)
+		return nil, fmt.Errorf("配置文件: %w", err)
 	}
 	if err := ValidateServer(&cfg.Server); err != nil {
-		return nil, fmt.Errorf("config.yaml: %w", err)
+		return nil, fmt.Errorf("配置文件: %w", err)
 	}
 	// 解析渠道
 	channelsRaw, ok := raw["channels"].(map[string]any)

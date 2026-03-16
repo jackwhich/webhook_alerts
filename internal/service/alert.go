@@ -21,6 +21,27 @@ type AlertService struct {
 	ImageService  *ImageService
 }
 
+// reasonForLog 将发送失败原因码转为中文，用于日志展示（指标仍用英文 reason）。
+func reasonForLog(reason string) string {
+	switch reason {
+	case "timeout":
+		return "超时"
+	case "http_error":
+		return "HTTP 错误"
+	case "invalid_response":
+		return "响应无效"
+	case "network":
+		return "网络异常"
+	case "template_render":
+		return "模板渲染失败"
+	default:
+		if reason == "" {
+			return "未知原因"
+		}
+		return reason
+	}
+}
+
 // ProcessWebhookResult 返回给 HTTP 处理器的结果。
 type ProcessWebhookResult struct {
 	OK          bool                `json:"ok"`
@@ -62,7 +83,7 @@ func (s *AlertService) ProcessWebhook(ctx context.Context, logObj *logger.Logger
 func (s *AlertService) processSingleAlert(ctx context.Context, logObj *logger.Logger, alert *model.Alert) (out []sender.SendResult) {
 	alertname := alert.GetLabel("alertname")
 	if alertname == "" {
-		alertname = "Unknown"
+		alertname = "未知"
 	}
 	alertStatus := alert.Status
 
@@ -72,7 +93,7 @@ func (s *AlertService) processSingleAlert(ctx context.Context, logObj *logger.Lo
 		logObj.WithContext(ctx).Info().
 			Str("event", "dedup_jenkins").
 			Str("alertname", alertname).
-			Msgf("[Webhook] 告警 %s 命中 Jenkins 去重窗口，跳过重复 firing 通知", alertname)
+			Msgf("[Webhook] 告警 %s 命中 Jenkins 去重窗口，跳过重复触发通知", alertname)
 		return []sender.SendResult{{Channel: "", Success: false}}
 	}
 	// Grafana 去重
@@ -159,7 +180,7 @@ func (s *AlertService) processSingleAlert(ctx context.Context, logObj *logger.Lo
 				Str("channel", channelName).
 				Str("channel_type", ch.Type).
 				Str("reason", res.Reason).
-				Msgf("[Webhook] 告警 %s 渠道 %s (%s) 发送失败: %s", alertname, channelName, ch.Type, res.Reason)
+				Msgf("[Webhook] 告警 %s 渠道 %s (%s) 发送失败: %s", alertname, channelName, ch.Type, reasonForLog(res.Reason))
 		}
 	}
 	return results
@@ -176,7 +197,7 @@ func (s *AlertService) buildContext(alert *model.Alert) map[string]any {
 	}
 	alertname := alert.GetLabel("alertname")
 	if alertname == "" {
-		alertname = "Unknown"
+		alertname = "未知"
 	}
 	return map[string]any{
 		"title":       titlePrefix + " " + alertname,

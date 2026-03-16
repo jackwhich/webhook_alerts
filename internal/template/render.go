@@ -39,11 +39,14 @@ func Render(templateName string, alert *model.Alert) (string, error) {
 		}
 	}
 	ctx := map[string]any{
-		"status":      alert.Status,
-		"labels":      alert.Labels,
-		"annotations": annotations,
-		"startsAt":    startsAt,
-		"endsAt":      endsAt,
+		"status":         alert.Status,
+		"statusFiring":   "firing",
+		"statusResolved": "resolved",
+		"labels":         alert.Labels,
+		"annotations":    annotations,
+		"startsAt":       startsAt,
+		"endsAt":         endsAt,
+		"GeneratorURL":   alert.GeneratorURL,
 	}
 	name := templateName
 	if strings.HasSuffix(name, ".j2") {
@@ -54,11 +57,11 @@ func Render(templateName string, alert *model.Alert) (string, error) {
 	path := filepath.Join(TemplateDir, name)
 	tmpl, err := template.New(filepath.Base(path)).Funcs(funcMap()).ParseFiles(path)
 	if err != nil {
-		return "", fmt.Errorf("parse template %s: %w", path, err)
+		return "", fmt.Errorf("解析模板 %s: %w", path, err)
 	}
 	var buf bytes.Buffer
 	if err := tmpl.ExecuteTemplate(&buf, filepath.Base(path), ctx); err != nil {
-		return "", fmt.Errorf("execute template: %w", err)
+		return "", fmt.Errorf("执行模板: %w", err)
 	}
 	return buf.String(), nil
 }
