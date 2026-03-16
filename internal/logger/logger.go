@@ -85,9 +85,19 @@ func (o orderedObject) MarshalJSON() ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// orderedKeys 返回用于 JSON 输出的键顺序：timestamp, level, message，其余按字母序。
+// orderedKeys 返回用于 JSON 输出的键顺序：时间、trace_id、Level、event、ip、接口、耗时、http状态码、message 最后，其余按字母序。
 func orderedKeys(m map[string]any) []string {
-	first := []string{"timestamp", "level", "message"}
+	first := []string{
+		"timestamp",   // 时间
+		"trace_id",    // trace id
+		"level",       // Level
+		"event",       // event
+		"remote_addr", // ip
+		"path",        // 接口
+		"duration_ms", // 耗时
+		"status",      // http状态码
+		"message",     // message 放最后
+	}
 	seen := make(map[string]bool)
 	for _, k := range first {
 		seen[k] = true
